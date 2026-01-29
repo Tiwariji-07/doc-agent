@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WaveMaker Docs Assistant</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0f0f1a;
+            --bg-secondary: #1a1a2e;
+            --bg-tertiary: #252542;
+            --accent: #6366f1;
+            --accent-hover: #818cf8;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border: #334155;
+            --success: #10b981;
+            --error: #ef4444;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--bg-secondary), var(--bg-tertiary));
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent), #8b5cf6);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+
+        .header-text h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .header-text p {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .status {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--error);
+        }
+
+        .status-dot.connected {
+            background: var(--success);
+        }
+
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 900px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 1.5rem;
+            overflow: hidden;
+        }
+
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem 0;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .message {
+            display: flex;
+            gap: 1rem;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            font-size: 1rem;
+        }
+
+        .message.user .message-avatar {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+        }
+
+        .message.assistant .message-avatar {
+            background: linear-gradient(135deg, var(--accent), #8b5cf6);
+        }
+
+        .message-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .message-header {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        .message-body {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            line-height: 1.6;
+        }
+
+        .message.user .message-body {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            border: none;
+        }
+
+        /* Markdown */
+        .message-body p {
+            margin-bottom: 0.75rem;
+        }
+
+        .message-body p:last-child {
+            margin-bottom: 0;
+        }
+
+        .message-body strong {
+            font-weight: 600;
+            color: var(--accent-hover);
+        }
+
+        .message-body code {
+            background: var(--bg-tertiary);
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.875rem;
+        }
+
+        .message-body pre {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            overflow-x: auto;
+            margin: 0.75rem 0;
+        }
+
+        .message-body pre code {
+            background: none;
+            padding: 0;
+        }
+
+        .message-body ol,
+        .message-body ul {
+            margin: 0.5rem 0;
+            padding-left: 1.5rem;
+        }
+
+        .message-body li {
+            margin: 0.25rem 0;
+        }
+
+        .message-body h1,
+        .message-body h2,
+        .message-body h3 {
+            margin: 1rem 0 0.5rem;
+            font-weight: 600;
+        }
+
+        .message-body h1 {
+            font-size: 1.25rem;
+        }
+
+        .message-body h2 {
+            font-size: 1.1rem;
+        }
+
+        .message-body h3 {
+            font-size: 1rem;
+        }
+
+        /* Citation badge */
+        .cite {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--accent);
+            color: white !important;
+            font-size: 0.65rem;
+            font-weight: 600;
+            min-width: 18px;
+            height: 18px;
+            padding: 0 5px;
+            border-radius: 4px;
+            text-decoration: none !important;
+            cursor: pointer;
+            vertical-align: middle;
+            margin: 0 2px;
+            transition: all 0.2s;
+        }
+
+        .cite:hover {
+            background: var(--accent-hover);
+            transform: scale(1.1);
+        }
+
+        /* Sources */
+        .sources {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .sources-title {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 0.75rem;
+            font-weight: 600;
+        }
+
+        .source-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            font-size: 0.875rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            background: var(--bg-tertiary);
+            transition: all 0.2s;
+        }
+
+        .source-item:hover {
+            border-color: var(--accent);
+        }
+
+        .source-number {
+            background: var(--accent);
+            color: white;
+            min-width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .source-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .source-title {
+            color: var(--text-primary);
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+        }
+
+        .source-link {
+            color: var(--accent-hover);
+            text-decoration: none;
+            font-size: 0.8rem;
+            word-break: break-all;
+        }
+
+        .source-link:hover {
+            text-decoration: underline;
+        }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            gap: 4px;
+            padding: 0.5rem 0;
+        }
+
+        .loading span {
+            width: 8px;
+            height: 8px;
+            background: var(--accent);
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+
+        .loading span:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+
+        .loading span:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+
+        @keyframes bounce {
+
+            0%,
+            80%,
+            100% {
+                transform: scale(0);
+            }
+
+            40% {
+                transform: scale(1);
+            }
+        }
+
+        /* Input */
+        .input-area {
+            padding: 1rem 0;
+            border-top: 1px solid var(--border);
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 0.75rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 0.75rem 1rem;
+            transition: border-color 0.2s;
+        }
+
+        .input-wrapper:focus-within {
+            border-color: var(--accent);
+        }
+
+        .input-wrapper input {
+            flex: 1;
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            outline: none;
+        }
+
+        .input-wrapper input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .send-btn {
+            background: linear-gradient(135deg, var(--accent), #8b5cf6);
+            border: none;
+            border-radius: 8px;
+            padding: 0.5rem 1rem;
+            color: white;
+            font-weight: 500;
+            cursor: pointer;
+            transition: transform 0.1s, opacity 0.2s;
+        }
+
+        .send-btn:hover {
+            transform: scale(1.02);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Welcome */
+        .welcome {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--text-secondary);
+        }
+
+        .welcome h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .welcome p {
+            margin-bottom: 1.5rem;
+        }
+
+        .suggestions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 0.75rem;
+        }
+
+        .suggestion {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .suggestion:hover {
+            border-color: var(--accent);
+            background: var(--bg-tertiary);
+        }
+
+        .error-message {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid var(--error);
+            color: var(--error);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 0.5rem;
+        }
+
+        .cached-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            background: var(--success);
+            color: white;
+            font-size: 0.65rem;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            margin-left: 0.5rem;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <header class="header">
+        <div class="logo">📚</div>
+        <div class="header-text">
+            <h1>WaveMaker Docs Assistant</h1>
+            <p>AI-powered documentation search</p>
+        </div>
+        <div class="status">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">Connecting...</span>
+        </div>
+    </header>
+
+    <main class="chat-container">
+        <div class="messages" id="messages">
+            <div class="welcome" id="welcome">
+                <h2>👋 Welcome to Docs Assistant</h2>
+                <p>Ask me anything about WaveMaker documentation</p>
+                <div class="suggestions">
+                    <div class="suggestion" onclick="askSuggestion('What is AIRA?')">What is AIRA?</div>
+                    <div class="suggestion" onclick="askSuggestion('How to create a REST API?')">How to create a REST
+                        API?</div>
+                    <div class="suggestion" onclick="askSuggestion('How to deploy an app?')">How to deploy an app?</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="input-area">
+            <div class="input-wrapper">
+                <input type="text" id="queryInput" placeholder="Ask about WaveMaker documentation..."
+                    onkeypress="handleKeyPress(event)">
+                <button class="send-btn" id="sendBtn" onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        let isStreaming = false;
+
+        marked.setOptions({ breaks: true, gfm: true });
+
+        async function checkHealth() {
+            try {
+                const response = await fetch(`${API_URL}/api/health`);
+                const data = await response.json();
+                const statusDot = document.getElementById('statusDot');
+                const statusText = document.getElementById('statusText');
+                if (data.status === 'healthy' || data.status === 'degraded') {
+                    statusDot.classList.add('connected');
+                    statusText.textContent = 'Connected';
+                } else {
+                    statusDot.classList.remove('connected');
+                    statusText.textContent = 'Disconnected';
+                }
+            } catch (error) {
+                document.getElementById('statusDot').classList.remove('connected');
+                document.getElementById('statusText').textContent = 'Disconnected';
+            }
+        }
+
+        checkHealth();
+        setInterval(checkHealth, 30000);
+
+        function askSuggestion(query) {
+            document.getElementById('queryInput').value = query;
+            sendMessage();
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !isStreaming) sendMessage();
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('queryInput');
+            const query = input.value.trim();
+            if (!query || isStreaming) return;
+
+            const welcome = document.getElementById('welcome');
+            if (welcome) welcome.style.display = 'none';
+
+            addMessage('user', query);
+            input.value = '';
+
+            isStreaming = true;
+            document.getElementById('sendBtn').disabled = true;
+
+            const assistantMsg = addMessage('assistant', '', true);
+
+            try {
+                const response = await fetch(`${API_URL}/api/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: query, stream: true, include_sources: true }),
+                });
+
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let content = '';
+                let sources = [];
+                let isCached = false;
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+
+                                if (data.type === 'text') {
+                                    content += data.content || '';
+                                    // Show streaming text (citations will be converted at end)
+                                    updateMessage(assistantMsg, content, [], false, false);
+                                } else if (data.type === 'sources') {
+                                    sources = data.sources || [];
+                                    console.log('Received sources:', sources);
+                                } else if (data.type === 'done') {
+                                    isCached = data.cached || false;
+                                    // Final update with sources - this converts citations!
+                                    updateMessage(assistantMsg, content, sources, true, isCached);
+                                } else if (data.type === 'error') {
+                                    throw new Error(data.error);
+                                }
+                            } catch (e) {
+                                // Ignore JSON parse errors for incomplete chunks
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                const body = assistantMsg.querySelector('.message-body');
+                body.innerHTML = `<div class="error-message">Error: ${error.message}. Make sure the API server is running.</div>`;
+            }
+
+            isStreaming = false;
+            document.getElementById('sendBtn').disabled = false;
+            document.getElementById('queryInput').focus();
+        }
+
+        function addMessage(role, content, loading = false) {
+            const messages = document.getElementById('messages');
+            const msg = document.createElement('div');
+            msg.className = `message ${role}`;
+
+            const avatar = role === 'user' ? '👤' : '🤖';
+            const name = role === 'user' ? 'You' : 'Docs Assistant';
+
+            msg.innerHTML = `
+                <div class="message-avatar">${avatar}</div>
+                <div class="message-content">
+                    <div class="message-header">${name}</div>
+                    <div class="message-body">
+                        ${loading ? '<div class="loading"><span></span><span></span><span></span></div>' : marked.parse(content)}
+                    </div>
+                </div>
+            `;
+
+            messages.appendChild(msg);
+            messages.scrollTop = messages.scrollHeight;
+            return msg;
+        }
+
+        function updateMessage(msg, content, sources, done, cached) {
+            const body = msg.querySelector('.message-body');
+            const header = msg.querySelector('.message-header');
+
+            // Render markdown
+            let html = content ? marked.parse(content) : '';
+
+            // Convert citations to links when done AND we have sources
+            if (done && sources.length > 0) {
+                html = convertCitations(html, sources);
+
+                // Add sources section
+                html += `
+                    <div class="sources">
+                        <div class="sources-title">📚 References</div>
+                        ${sources.map((s, i) => `
+                            <div class="source-item" id="ref-${s.id || i + 1}">
+                                <span class="source-number">${s.id || i + 1}</span>
+                                <div class="source-info">
+                                    <div class="source-title">${escapeHtml(s.title || 'Documentation')}${s.section ? ` › ${escapeHtml(s.section)}` : ''}</div>
+                                    <a href="${s.url}" target="_blank" rel="noopener" class="source-link">${s.url}</a>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            if (done && cached) {
+                header.innerHTML = 'Docs Assistant <span class="cached-badge">⚡ Cached</span>';
+            }
+
+            body.innerHTML = html || '<div class="loading"><span></span><span></span><span></span></div>';
+
+            const messages = document.getElementById('messages');
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function convertCitations(html, sources) {
+            // Convert [1], [2], [1][2], etc. to clickable links
+            return html.replace(/\[(\d+)\]/g, (match, num) => {
+                const idx = parseInt(num) - 1;
+                if (idx >= 0 && idx < sources.length) {
+                    const source = sources[idx];
+                    return `<a href="${source.url}" target="_blank" class="cite" title="${escapeHtml(source.title || 'Source')}">${num}</a>`;
+                }
+                return match;
+            });
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+
+</html>
