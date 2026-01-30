@@ -4,6 +4,8 @@ API routes for WaveMaker Docs Agent.
 
 import json
 import logging
+import time
+import uuid
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException
@@ -85,7 +87,8 @@ async def chat(request: ChatRequest):
     Chat endpoint for querying documentation.
     Supports both streaming and non-streaming responses.
     """
-    logger.info(f"Chat request: {request.query[:100]}...")
+    query_id = str(uuid.uuid4())
+    logger.info(f"Chat request [{query_id}]: {request.query[:100]}...")
 
     try:
         pipeline = get_pipeline()
@@ -93,7 +96,7 @@ async def chat(request: ChatRequest):
         if request.stream:
             # Return streaming response
             return StreamingResponse(
-                stream_response(pipeline, request),
+                stream_response(pipeline, request, query_id),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -102,11 +105,31 @@ async def chat(request: ChatRequest):
                 },
             )
         else:
-            # Return complete response
+            # Return complete response with analytics
+            start_time = time.time()
             result = await pipeline.query(
                 query=request.query,
                 include_sources=request.include_sources,
             )
+            response_time_ms = int((time.time() - start_time) * 1000)
+            
+            # Extract token usage and cache status
+            usage = result.get("usage", {})
+            cache_hit = result.get("cached", False)
+            
+            # Track analytics (fire-and-forget)
+            await _track_query(
+                query_id, 
+                request.query, 
+                response_time_ms, 
+                len(result.get("sources", [])),
+                tokens_input=usage.get("input_tokens"),
+                tokens_output=usage.get("output_tokens"),
+                cache_hit=cache_hit,
+            )
+            
+            # Add query_id to response
+            result["query_id"] = query_id
             return ChatResponse(**result)
 
     except Exception as e:
@@ -117,22 +140,97 @@ async def chat(request: ChatRequest):
 async def stream_response(
     pipeline: QueryPipeline,
     request: ChatRequest,
+    query_id: str,
 ) -> AsyncGenerator[str, None]:
     """
     Stream the response as Server-Sent Events.
     """
+    start_time = time.time()
+    sources_count = 0
+    usage = {}
+    cache_hit = False
+    
     try:
         async for chunk in pipeline.query_stream(
             query=request.query,
             include_sources=request.include_sources,
         ):
+            # Track sources count from sources chunk
+            if chunk.get("type") == "sources":
+                sources_count = len(chunk.get("sources", []))
+            
+            # Extract token usage and cache status from done chunk
+            if chunk.get("type") == "done":
+                chunk["query_id"] = query_id
+                usage = chunk.get("usage", {})
+                cache_hit = chunk.get("cached", False)
+            
             # Format as SSE
             yield f"data: {json.dumps(chunk)}\n\n"
+        
+        # Track analytics after stream completes
+        response_time_ms = int((time.time() - start_time) * 1000)
+        await _track_query(
+            query_id, 
+            request.query, 
+            response_time_ms, 
+            sources_count,
+            tokens_input=usage.get("input_tokens"),
+            tokens_output=usage.get("output_tokens"),
+            cache_hit=cache_hit,
+        )
 
     except Exception as e:
         logger.exception(f"Error during streaming: {e}")
         error_chunk = StreamChunk(type="error", error=str(e))
         yield f"data: {error_chunk.model_dump_json()}\n\n"
+        
+        # Track error
+        await _track_query(query_id, request.query, 0, 0, error=str(e))
+
+
+async def _track_query(
+    query_id: str,
+    query: str,
+    response_time_ms: int,
+    sources_count: int,
+    error: str | None = None,
+    tokens_input: int | None = None,
+    tokens_output: int | None = None,
+    cache_hit: bool = False,
+) -> None:
+    """Track query analytics (fire-and-forget)."""
+    settings = get_settings()
+    if not settings.analytics_enabled:
+        return
+    
+    try:
+        from src.analytics import track_query, QueryEvent
+        
+        # Determine model based on provider
+        if settings.ai_provider == "anthropic":
+            model = settings.anthropic_model
+        elif settings.ai_provider == "openai":
+            model = settings.openai_model
+        else:
+            model = settings.ollama_model
+        
+        event = QueryEvent(
+            id=query_id,
+            query=query,
+            provider=settings.ai_provider,
+            model=model,
+            response_time_ms=response_time_ms,
+            sources_count=sources_count,
+            tokens_input=tokens_input,
+            tokens_output=tokens_output,
+            cache_hit=cache_hit,
+            error=error,
+        )
+        await track_query(event)
+    except Exception as e:
+        # Never fail the main request due to analytics
+        logger.warning(f"Failed to track analytics: {e}")
 
 
 @router.post("/index", response_model=IndexResponse)

@@ -155,6 +155,28 @@ class Settings(BaseSettings):
     chunk_max_tokens: int = Field(default=512, description="Maximum chunk size")
     chunk_target_tokens: int = Field(default=350, description="Target chunk size")
 
+    # === Analytics Configuration ===
+    analytics_enabled: bool = Field(
+        default=True,
+        description="Enable analytics tracking",
+    )
+    analytics_db_path: str = Field(
+        default="data/analytics.db",
+        description="SQLite database path for analytics",
+    )
+    analytics_batch_size: int = Field(
+        default=100,
+        description="Number of events to batch before writing to DB",
+    )
+    analytics_flush_interval: int = Field(
+        default=5,
+        description="Seconds between forced flushes to DB",
+    )
+    analytics_redis_key: str = Field(
+        default="docs_agent:analytics:queue",
+        description="Redis key for analytics event queue",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -4,6 +4,7 @@ Anthropic Claude provider implementation.
 Features:
 - Prompt caching for reduced latency and cost
 - Streaming support
+- Token usage tracking
 """
 
 import logging
@@ -11,7 +12,7 @@ from typing import AsyncGenerator, Optional
 
 import anthropic
 
-from src.core.providers.base import BaseLLMProvider
+from src.core.providers.base import BaseLLMProvider, GenerationResult, StreamResult, TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -55,13 +56,25 @@ class AnthropicProvider(BaseLLMProvider):
             }
         ]
 
+    def _extract_usage(self, response) -> TokenUsage:
+        """Extract token usage from Anthropic response."""
+        if hasattr(response, "usage"):
+            usage = response.usage
+            return TokenUsage(
+                input_tokens=getattr(usage, "input_tokens", 0),
+                output_tokens=getattr(usage, "output_tokens", 0),
+                cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0),
+                cache_creation_tokens=getattr(usage, "cache_creation_input_tokens", 0),
+            )
+        return TokenUsage()
+
     async def generate(
         self,
         system_prompt: str,
         user_message: str,
         temperature: float = 0.2,
         max_tokens: int = 2048,
-    ) -> str:
+    ) -> GenerationResult:
         """Generate a complete response using Claude."""
         client = self._get_client()
         cached_system = self._build_cached_system(system_prompt)
@@ -75,15 +88,14 @@ class AnthropicProvider(BaseLLMProvider):
                 messages=[{"role": "user", "content": user_message}],
             )
 
-            # Log cache usage
-            if hasattr(response, "usage"):
-                usage = response.usage
-                cache_read = getattr(usage, "cache_read_input_tokens", 0)
-                cache_create = getattr(usage, "cache_creation_input_tokens", 0)
-                if cache_read or cache_create:
-                    logger.info(f"Anthropic cache - read: {cache_read}, created: {cache_create}")
+            usage = self._extract_usage(response)
+            if usage.cache_read_tokens or usage.cache_creation_tokens:
+                logger.info(f"Anthropic cache - read: {usage.cache_read_tokens}, created: {usage.cache_creation_tokens}")
 
-            return response.content[0].text
+            return GenerationResult(
+                text=response.content[0].text,
+                usage=usage,
+            )
 
         except anthropic.BadRequestError as e:
             # Fallback to non-cached if cache not supported
@@ -95,7 +107,10 @@ class AnthropicProvider(BaseLLMProvider):
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_message}],
             )
-            return response.content[0].text
+            return GenerationResult(
+                text=response.content[0].text,
+                usage=self._extract_usage(response),
+            )
 
     async def generate_stream(
         self,
@@ -103,7 +118,7 @@ class AnthropicProvider(BaseLLMProvider):
         user_message: str,
         temperature: float = 0.2,
         max_tokens: int = 2048,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str | StreamResult, None]:
         """Generate a streaming response using Claude."""
         client = self._get_client()
         cached_system = self._build_cached_system(system_prompt)
@@ -119,14 +134,12 @@ class AnthropicProvider(BaseLLMProvider):
                 async for text in stream.text_stream:
                     yield text
 
-                # Log cache usage
+                # Get final usage stats
                 final_message = await stream.get_final_message()
-                if hasattr(final_message, "usage"):
-                    usage = final_message.usage
-                    cache_read = getattr(usage, "cache_read_input_tokens", 0)
-                    cache_create = getattr(usage, "cache_creation_input_tokens", 0)
-                    if cache_read or cache_create:
-                        logger.info(f"Anthropic stream cache - read: {cache_read}, created: {cache_create}")
+                usage = self._extract_usage(final_message)
+                if usage.cache_read_tokens or usage.cache_creation_tokens:
+                    logger.info(f"Anthropic stream cache - read: {usage.cache_read_tokens}, created: {usage.cache_creation_tokens}")
+                yield StreamResult(usage=usage)
 
         except anthropic.BadRequestError as e:
             logger.warning(f"Anthropic stream cache not supported, falling back: {e}")
@@ -139,3 +152,7 @@ class AnthropicProvider(BaseLLMProvider):
             ) as stream:
                 async for text in stream.text_stream:
                     yield text
+                
+                final_message = await stream.get_final_message()
+                yield StreamResult(usage=self._extract_usage(final_message))
+

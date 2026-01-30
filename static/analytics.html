@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Docs Agent Analytics Dashboard</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet" />
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#3c83f6",
+                        "background-light": "#f5f7f8",
+                        "background-dark": "#101722",
+                        "slate-card": "#1e293b",
+                    },
+                    fontFamily: {
+                        "display": ["Inter"]
+                    },
+                    borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" },
+                },
+            },
+        }
+    </script>
+    <style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .loading {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .skeleton {
+            background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            0% {
+                background-position: 200% 0;
+            }
+
+            100% {
+                background-position: -200% 0;
+            }
+        }
+
+        .modal-overlay {
+            background-color: rgba(16, 23, 34, 0.85);
+            backdrop-filter: blur(4px);
+        }
+    </style>
+</head>
+
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen">
+    <div class="flex flex-col min-h-screen">
+        <!-- Top Navigation Bar -->
+        <header
+            class="sticky top-0 z-50 border-b border-slate-200 dark:border-slate-800 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md px-6 lg:px-12 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-6">
+                <div class="flex items-center gap-3">
+                    <div class="size-8 bg-primary rounded-lg flex items-center justify-center text-white">
+                        <img src="https://dev-ecosystem.s3.us-east-1.amazonaws.com/menu-icon/docs-icon.png" alt="logo">
+                    </div>
+                    <h1 class="text-xl font-bold tracking-tight">WaveMaker <span class="text-primary font-black">Docs
+                            Agent</span></h1>
+                </div>
+                <div class="hidden md:flex h-8 w-[1px] bg-slate-200 dark:bg-slate-800"></div>
+                <div id="status-indicator"
+                    class="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700">
+                    <div class="size-2 rounded-full bg-green-500 animate-pulse"></div>
+                    <span class="text-xs font-medium text-slate-500 dark:text-slate-400">System Live</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <div id="last-updated" class="text-xs text-slate-500 hidden md:block"></div>
+                <button id="theme-toggle"
+                    class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+                    <span class="material-symbols-outlined">dark_mode</span>
+                </button>
+            </div>
+        </header>
+
+        <main class="flex-1 px-6 lg:px-12 py-8 max-w-[1600px] mx-auto w-full space-y-8">
+            <!-- Page Heading & Controls -->
+            <div class="flex flex-col md:flex-row md:items-end justify-between gap-6">
+                <div>
+                    <h2 class="text-3xl font-black tracking-tight mb-2">Analytics Dashboard</h2>
+                    <p class="text-slate-500 dark:text-slate-400 font-medium">Real-time performance and cost monitoring
+                        for AI documentation</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <!-- Period Selector -->
+                    <div
+                        class="flex p-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg h-10">
+                        <label
+                            class="flex items-center px-4 rounded-md text-sm font-semibold cursor-pointer has-[:checked]:bg-white dark:has-[:checked]:bg-slate-900 has-[:checked]:text-primary has-[:checked]:shadow-sm text-slate-500 transition-all">
+                            <span>Today</span>
+                            <input checked name="period" type="radio" value="today" class="hidden"
+                                onchange="loadDashboard('today')" />
+                        </label>
+                        <label
+                            class="flex items-center px-4 rounded-md text-sm font-semibold cursor-pointer has-[:checked]:bg-white dark:has-[:checked]:bg-slate-900 has-[:checked]:text-primary has-[:checked]:shadow-sm text-slate-500 transition-all">
+                            <span>Week</span>
+                            <input name="period" type="radio" value="week" class="hidden"
+                                onchange="loadDashboard('week')" />
+                        </label>
+                        <label
+                            class="flex items-center px-4 rounded-md text-sm font-semibold cursor-pointer has-[:checked]:bg-white dark:has-[:checked]:bg-slate-900 has-[:checked]:text-primary has-[:checked]:shadow-sm text-slate-500 transition-all">
+                            <span>Month</span>
+                            <input name="period" type="radio" value="month" class="hidden"
+                                onchange="loadDashboard('month')" />
+                        </label>
+                    </div>
+                    <button onclick="refreshData()"
+                        class="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-lg shadow-primary/20 transition-all active:scale-95">
+                        <span class="material-symbols-outlined text-sm" id="refresh-icon">refresh</span>
+                        Refresh
+                    </button>
+                </div>
+            </div>
+
+            <!-- Section 1: Top Metrics Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <!-- Total Queries -->
+                <div
+                    class="bg-white dark:bg-slate-card border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm flex flex-col justify-between">
+                    <div class="flex justify-between items-start mb-4">
+                        <div>
+                            <p
+                                class="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                Total Queries</p>
+                            <h3 class="text-4xl font-black mt-1" id="total-queries">--</h3>
+                        </div>
+                        <div class="p-2 bg-primary/10 rounded-lg text-primary">
+                            <span class="material-symbols-outlined">query_stats</span>
+                        </div>
+                    </div>
+                    <p class="text-xs font-medium text-slate-500 mt-3">
+                        <span id="feedback-count">--</span> feedback received
+                    </p>
+                </div>
+
+                <!-- Avg Response Time -->
+                <div
+                    class="bg-white dark:bg-slate-card border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p
+                                class="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                Response Time</p>
+                            <h3 class="text-4xl font-black mt-1" id="avg-response-time">--</h3>
+                        </div>
+                        <div class="relative size-12">
+                            <svg class="size-full" viewBox="0 0 36 36">
+                                <path class="stroke-slate-200 dark:stroke-slate-800"
+                                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                    fill="none" stroke-width="4"></path>
+                                <path id="response-time-ring" class="stroke-green-500"
+                                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                    fill="none" stroke-dasharray="85, 100" stroke-linecap="round" stroke-width="4">
+                                </path>
+                            </svg>
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <span class="material-symbols-outlined text-green-500 text-sm">bolt</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-8">
+                        <p id="cache-hit-text" class="text-xs font-bold text-green-500 flex items-center gap-1">
+                            <span class="material-symbols-outlined text-sm">check_circle</span> <span
+                                id="cache-rate">--</span>% cache hit rate
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Feedback Score -->
+                <div
+                    class="bg-white dark:bg-slate-card border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p
+                                class="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                Feedback Score</p>
+                            <h3 class="text-4xl font-black mt-1" id="feedback-score">--%</h3>
+                        </div>
+                        <div class="p-2 bg-amber-500/10 rounded-lg text-amber-500">
+                            <span class="material-symbols-outlined">thumb_up</span>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <p class="text-xs text-slate-500">
+                            <span id="positive-feedback" class="text-green-500 font-bold">--</span> 👍 /
+                            <span id="negative-feedback" class="text-red-500 font-bold">--</span> 👎
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Error Rate -->
+                <div class="bg-white dark:bg-slate-card border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm flex flex-col justify-between"
+                    id="error-card">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p
+                                class="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                Error Rate</p>
+                            <h3 class="text-4xl font-black mt-1" id="error-rate">--%</h3>
+                        </div>
+                        <div class="p-2 bg-red-500/10 rounded-lg text-red-500">
+                            <span class="material-symbols-outlined">warning</span>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <p class="text-xs text-slate-500" id="pending-review-text">
+                            <span id="pending-review" class="text-primary font-bold">--</span> feedback pending review
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 2: Cost & Token Usage -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <!-- Token Usage -->
+                <div
+                    class="bg-white dark:bg-slate-card border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+                    <h4 class="text-lg font-bold mb-6 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-primary">donut_large</span>
+                        Token Usage
+                    </h4>
+                    <div class="flex flex-col items-center justify-center py-4">
+                        <div class="size-48 relative mb-6">
+                            <svg class="size-full transform -rotate-90" viewBox="0 0 36 36">
+                                <circle class="stroke-slate-200 dark:stroke-slate-800" cx="18" cy="18"
+                                    fill="transparent" r="15.9" stroke-width="4"></circle>
+                                <circle id="input-tokens-ring" class="stroke-primary" cx="18" cy="18" fill="transparent"
+                                    r="15.9" stroke-dasharray="65 100" stroke-dashoffset="0" stroke-width="4"></circle>
+                                <circle id="output-tokens-ring" class="stroke-indigo-400" cx="18" cy="18"
+                                    fill="transparent" r="15.9" stroke-dasharray="25 100" stroke-dashoffset="-65"
+                                    stroke-width="4"></circle>
+                            </svg>
+                            <div class="absolute inset-0 flex flex-col items-center justify-center">
+                                <span class="text-2xl font-black" id="total-tokens">--</span>
+                                <span class="text-[10px] uppercase font-bold text-slate-500">Total</span>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4 w-full">
+                            <div class="flex items-center gap-2">
+                                <div class="size-2.5 rounded-full bg-primary"></div>
+                                <div class="flex flex-col">
+                                    <span class="text-[10px] text-slate-500 font-bold uppercase">Input</span>
+                                    <span class="text-sm font-bold" id="input-tokens">--</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <div class="size-2.5 rounded-full bg-indigo-400"></div>
+                                <div class="flex flex-col">
+                                    <span class="text-[10px] text-slate-500 font-bold uppercase">Output</span>
+                                    <span class="text-sm font-bold" id="output-tokens">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cost Breakdown -->
+                <div
+                    class="bg-white dark:bg-slate-card border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+                    <div class="flex justify-between items-start mb-6">
+                        <h4 class="text-lg font-bold flex items-center gap-2">
+                            <span class="material-symbols-outlined text-green-500">payments</span>
+                            Cost Breakdown
+                        </h4>
+                        <div class="text-right">
+                            <p class="text-2xl font-black" id="total-cost">$--</p>
+                            <p class="text-[10px] text-slate-500 font-bold">TOTAL SPEND</p>
+                        </div>
+                    </div>
+                    <div id="provider-costs" class="space-y-5">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Cache Savings & Efficiency -->
+                <div
+                    class="bg-white dark:bg-slate-card border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm flex flex-col">
+                    <h4 class="text-lg font-bold mb-4 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-amber-500">savings</span>
+                        Efficiency & Hits
+                    </h4>
+                    <div class="flex-1 flex flex-col items-center justify-center">
+                        <!-- Cache Hit Rate - Large Display -->
+                        <div class="text-center mb-6">
+                            <p class="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-1">Cache Hit Rate
+                            </p>
+                            <p class="text-5xl font-black text-green-500" id="cache-rate-large">--%</p>
+                        </div>
+                        <!-- Savings Amount -->
+                        <div
+                            class="w-full bg-gradient-to-r from-green-500/10 to-green-500/5 rounded-xl p-4 border border-green-500/20 text-center">
+                            <p class="text-sm text-slate-500">Saved approximately</p>
+                            <p class="text-2xl font-black text-green-500" id="cache-savings">$0.00</p>
+                            <p class="text-xs text-slate-500" id="cache-period">today</p>
+                        </div>
+                        <!-- Stats Row -->
+                        <div class="grid grid-cols-2 gap-4 mt-4 w-full">
+                            <div class="text-center p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
+                                <p class="text-lg font-bold text-green-500" id="cache-hits">0</p>
+                                <p class="text-[10px] uppercase font-bold text-slate-500">Cache Hits</p>
+                            </div>
+                            <div class="text-center p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
+                                <p class="text-lg font-bold text-slate-400" id="cache-misses">0</p>
+                                <p class="text-[10px] uppercase font-bold text-slate-500">Cache Misses</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Response Time Trend -->
+                <div
+                    class="bg-white dark:bg-slate-card border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm flex flex-col">
+                    <h4 class="text-lg font-bold mb-4 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-primary">trending_up</span>
+                        Response Time Trend
+                    </h4>
+                    <div id="response-time-chart" class="flex-1 min-h-[180px] flex items-end gap-1 pb-2">
+                        <!-- Populated by JS with bar chart -->
+                    </div>
+                    <div class="flex justify-between text-[10px] text-slate-500 font-medium mt-2 px-1"
+                        id="response-time-labels">
+                        <!-- Time labels -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 3: Top Queries & Pending Review -->
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                <!-- Top Queries Table -->
+                <div
+                    class="bg-white dark:bg-slate-card border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm lg:col-span-2 flex flex-col overflow-hidden">
+                    <div
+                        class="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
+                        <h4 class="font-bold flex items-center gap-2">
+                            <span class="material-symbols-outlined text-primary">format_list_bulleted</span>
+                            Top Queries
+                        </h4>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead
+                                class="text-[10px] uppercase font-bold text-slate-400 border-b border-slate-100 dark:border-slate-800">
+                                <tr>
+                                    <th class="px-6 py-4">Query</th>
+                                    <th class="px-6 py-4 text-center">Count</th>
+                                </tr>
+                            </thead>
+                            <tbody id="top-queries-body"
+                                class="text-sm font-medium divide-y divide-slate-100 dark:divide-slate-800">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Pending Feedback Review -->
+                <div
+                    class="bg-white dark:bg-slate-card border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm lg:col-span-2 flex flex-col">
+                    <div
+                        class="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
+                        <div class="flex items-center gap-2">
+                            <h4 class="font-bold">Reviews</h4>
+                            <span id="pending-badge"
+                                class="bg-primary text-white text-[10px] font-black px-2 py-0.5 rounded-full">0
+                                NEW</span>
+                        </div>
+                    </div>
+                    <div id="pending-feedback-list" class="flex-1 overflow-y-auto max-h-[400px]">
+                        <div class="divide-y divide-slate-100 dark:divide-slate-800">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer
+            class="mt-auto border-t border-slate-200 dark:border-slate-800 px-6 py-6 text-center text-slate-500 text-xs font-medium">
+            <p>© 2024 WaveMaker AI. All rights reserved.</p>
+        </footer>
+    </div>
+
+    <!-- Review Modal -->
+    <div id="review-modal" class="fixed inset-0 z-50 hidden items-center justify-center modal-overlay p-4">
+        <div
+            class="bg-[#182334] w-full max-w-2xl rounded-xl border border-[#314668] shadow-2xl flex flex-col max-h-[90vh]">
+            <div class="flex items-center justify-between p-6 border-b border-[#314668]">
+                <div class="flex items-center gap-3">
+                    <span class="material-symbols-outlined text-primary">rate_review</span>
+                    <h3 class="text-xl font-bold">Review Feedback</h3>
+                    <span id="modal-feedback-id"
+                        class="ml-2 px-2 py-0.5 rounded bg-primary/20 text-primary text-[10px] uppercase font-bold tracking-wider"></span>
+                </div>
+                <button onclick="closeModal()" class="text-[#90a7cb] hover:text-white transition-colors">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-6 space-y-6">
+                <div class="space-y-2">
+                    <div class="flex items-center gap-2 text-[#90a7cb] text-xs font-bold uppercase tracking-widest">
+                        <span class="material-symbols-outlined text-sm">person</span>
+                        User Query
+                    </div>
+                    <div id="modal-query" class="bg-[#101723] rounded-lg p-4 border border-[#223149] text-white italic">
+                    </div>
+                </div>
+                <div class="space-y-2">
+                    <div class="flex items-center gap-2 text-red-400 text-xs font-bold uppercase tracking-widest">
+                        <span class="material-symbols-outlined text-sm">feedback</span>
+                        User Feedback
+                    </div>
+                    <div id="modal-feedback" class="bg-red-400/5 rounded-lg p-4 border border-red-400/20 text-white">
+                    </div>
+                </div>
+            </div>
+            <div class="p-6 border-t border-[#314668] bg-[#1c2a3f] rounded-b-xl flex items-center justify-between">
+                <button onclick="closeModal()"
+                    class="px-5 py-2.5 rounded-lg text-sm font-semibold text-[#90a7cb] hover:text-white hover:bg-[#223149] transition-all">
+                    Close
+                </button>
+                <button onclick="markReviewed()"
+                    class="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold bg-primary text-white hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all">
+                    <span class="material-symbols-outlined text-sm">done_all</span>
+                    Mark Reviewed
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE = '/api/analytics';
+        let currentPeriod = 'today';
+        let refreshInterval = null;
+        let currentFeedbackId = null;
+
+        // Format numbers with commas
+        function formatNumber(num) {
+            if (num === null || num === undefined) return '--';
+            return num.toLocaleString();
+        }
+
+        // Format tokens (e.g., 1500000 -> "1.5M")
+        function formatTokens(num) {
+            if (num === null || num === undefined || num === 0) return '0';
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num.toString();
+        }
+
+        // Format time (ms to seconds)
+        function formatTime(ms) {
+            if (ms === null || ms === undefined) return '--';
+            return (ms / 1000).toFixed(1) + 's';
+        }
+
+        // Format percentage
+        function formatPercent(value) {
+            if (value === null || value === undefined) return '--%';
+            return (value * 100).toFixed(1) + '%';
+        }
+
+        // Update last updated timestamp
+        function updateTimestamp() {
+            const now = new Date();
+            document.getElementById('last-updated').textContent =
+                `Updated: ${now.toLocaleTimeString()}`;
+        }
+
+        // Load overview data
+        async function loadOverview(period) {
+            try {
+                const response = await fetch(`${API_BASE}/overview?period=${period}`);
+                if (!response.ok) throw new Error('Failed to fetch overview');
+                const data = await response.json();
+
+                // Update metrics
+                document.getElementById('total-queries').textContent = formatNumber(data.total_queries);
+                document.getElementById('feedback-count').textContent = formatNumber(data.total_feedback);
+                document.getElementById('avg-response-time').textContent = formatTime(data.avg_response_time_ms);
+                document.getElementById('cache-rate').textContent = (data.cache_hit_rate * 100).toFixed(0);
+                document.getElementById('feedback-score').textContent = formatPercent(data.feedback_score);
+                document.getElementById('positive-feedback').textContent = data.positive_feedback;
+                document.getElementById('negative-feedback').textContent = data.negative_feedback;
+                document.getElementById('error-rate').textContent = formatPercent(data.error_rate);
+                document.getElementById('pending-review').textContent = data.pending_review_count;
+                document.getElementById('pending-badge').textContent = `${data.pending_review_count} NEW`;
+
+                // Token usage
+                document.getElementById('total-tokens').textContent = formatTokens(data.total_tokens_input + data.total_tokens_output);
+                document.getElementById('input-tokens').textContent = formatTokens(data.total_tokens_input);
+                document.getElementById('output-tokens').textContent = formatTokens(data.total_tokens_output);
+
+                // Update token rings
+                const totalTokens = data.total_tokens_input + data.total_tokens_output;
+                if (totalTokens > 0) {
+                    const inputPercent = (data.total_tokens_input / totalTokens) * 100;
+                    const outputPercent = (data.total_tokens_output / totalTokens) * 100;
+                    document.getElementById('input-tokens-ring').setAttribute('stroke-dasharray', `${inputPercent} 100`);
+                    document.getElementById('output-tokens-ring').setAttribute('stroke-dasharray', `${outputPercent} 100`);
+                    document.getElementById('output-tokens-ring').setAttribute('stroke-dashoffset', `-${inputPercent}`);
+                }
+
+                // Cost
+                document.getElementById('total-cost').textContent = `$${data.total_cost_usd.toFixed(2)}`;
+
+                // Cost breakdown by model
+                const costDiv = document.getElementById('provider-costs');
+                costDiv.innerHTML = '';
+                const modelColors = {
+                    'claude': 'bg-amber-500',
+                    'gpt-4': 'bg-primary',
+                    'gpt-4o': 'bg-primary',
+                    'gpt-3.5': 'bg-indigo-400',
+                    'llama': 'bg-orange-400',
+                    'default': 'bg-slate-400'
+                };
+
+                if (data.cost_by_model && data.cost_by_model.length > 0) {
+                    const maxCost = Math.max(...data.cost_by_model.map(m => m.cost), 0.01);
+
+                    for (const item of data.cost_by_model) {
+                        const percent = (item.cost / data.total_cost_usd * 100).toFixed(0);
+                        const barWidth = (item.cost / maxCost * 100);
+                        let colorClass = modelColors.default;
+                        for (const [key, color] of Object.entries(modelColors)) {
+                            if (item.model.toLowerCase().includes(key)) {
+                                colorClass = color;
+                                break;
+                            }
+                        }
+
+                        costDiv.innerHTML += `
+                            <div class="space-y-2">
+                                <div class="flex justify-between items-center text-sm">
+                                    <span class="font-medium text-slate-600 dark:text-slate-300 truncate max-w-[150px]">${item.model}</span>
+                                    <span class="font-bold">$${item.cost.toFixed(2)} (${percent}%)</span>
+                                </div>
+                                <div class="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                    <div class="${colorClass} h-full transition-all" style="width: ${barWidth}%"></div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                } else {
+                    costDiv.innerHTML = '<p class="text-sm text-slate-500 text-center py-4">No cost data yet</p>';
+                }
+
+                // Cache savings & efficiency
+                document.getElementById('cache-rate-large').textContent = `${(data.cache_hit_rate * 100).toFixed(0)}%`;
+                document.getElementById('cache-savings').textContent = `$${data.cache_savings_usd.toFixed(2)}`;
+                document.getElementById('cache-hits').textContent = data.cache_hit_count || 0;
+                document.getElementById('cache-misses').textContent = data.cache_miss_count || 0;
+                document.getElementById('cache-period').textContent = period;
+
+                // Response time trend chart
+                const chartDiv = document.getElementById('response-time-chart');
+                const labelsDiv = document.getElementById('response-time-labels');
+                chartDiv.innerHTML = '';
+                labelsDiv.innerHTML = '';
+
+                if (data.response_time_trend && data.response_time_trend.length > 0) {
+                    const maxMs = Math.max(...data.response_time_trend.map(d => d.avg_ms), 100);
+                    const barCount = data.response_time_trend.length;
+
+                    data.response_time_trend.forEach((item, idx) => {
+                        const heightPercent = (item.avg_ms / maxMs) * 100;
+                        const barColor = item.avg_ms > 3000 ? 'bg-red-400' :
+                            item.avg_ms > 2000 ? 'bg-amber-400' : 'bg-primary';
+
+                        chartDiv.innerHTML += `
+                            <div class="flex-1 flex flex-col items-center group cursor-pointer" title="${item.hour}: ${formatTime(item.avg_ms)} (${item.count} queries)">
+                                <div class="w-full ${barColor} rounded-t transition-all hover:opacity-80" 
+                                     style="height: ${heightPercent}%; min-height: 4px;"></div>
+                            </div>
+                        `;
+
+                        // Show every 3rd label or so to avoid crowding
+                        if (idx === 0 || idx === barCount - 1 || idx % Math.ceil(barCount / 4) === 0) {
+                            labelsDiv.innerHTML += `<span>${item.hour}</span>`;
+                        }
+                    });
+                } else {
+                    chartDiv.innerHTML = '<p class="text-sm text-slate-500 text-center w-full py-8">No trend data yet</p>';
+                }
+
+                // Top queries
+                const tbody = document.getElementById('top-queries-body');
+                tbody.innerHTML = '';
+                for (const item of data.top_queries.slice(0, 10)) {
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors">
+                            <td class="px-6 py-4 font-medium max-w-md truncate">"${escapeHtml(item.query)}"</td>
+                            <td class="px-6 py-4 text-center">${item.count}</td>
+                        </tr>
+                    `;
+                }
+
+                if (data.top_queries.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="2" class="px-6 py-8 text-center text-slate-500">No queries yet</td></tr>';
+                }
+
+                updateTimestamp();
+
+            } catch (error) {
+                console.error('Error loading overview:', error);
+            }
+        }
+
+        // Load pending feedback
+        async function loadPendingFeedback() {
+            try {
+                const response = await fetch(`${API_BASE}/feedback?limit=20`);
+                if (!response.ok) throw new Error('Failed to fetch feedback');
+                const data = await response.json();
+
+                const list = document.getElementById('pending-feedback-list');
+                list.innerHTML = '';
+
+                if (data.length === 0) {
+                    list.innerHTML = '<div class="p-6 text-center text-slate-500 text-sm">No pending feedback</div>';
+                    return;
+                }
+
+                for (const item of data) {
+                    const timeAgo = getTimeAgo(new Date(item.timestamp));
+                    list.innerHTML += `
+                        <div class="p-5 hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors">
+                            <div class="flex justify-between items-start mb-2">
+                                <div class="flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-sm ${item.helpful ? 'text-green-500' : 'text-red-500'}">
+                                        ${item.helpful ? 'thumb_up' : 'thumb_down'}
+                                    </span>
+                                </div>
+                                <span class="text-[10px] font-bold text-slate-400">${timeAgo}</span>
+                            </div>
+                            <p class="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed italic">"${escapeHtml(item.query || 'Unknown query')}"</p>
+                            ${item.comment ? `<p class="text-xs text-slate-500 mt-1">${escapeHtml(item.comment)}</p>` : ''}
+                            <div class="mt-4 flex gap-2">
+                                <button onclick="openReview('${item.id}', '${escapeHtml(item.query || '')}', '${escapeHtml(item.comment || '')}', ${item.helpful})" 
+                                    class="flex-1 bg-primary/10 hover:bg-primary text-primary hover:text-white px-3 py-1.5 rounded-md text-[10px] font-black transition-all">
+                                    REVIEW
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading feedback:', error);
+            }
+        }
+
+        // Open review modal
+        function openReview(id, query, comment, helpful) {
+            currentFeedbackId = id;
+            document.getElementById('modal-feedback-id').textContent = `ID: ${id.slice(0, 8)}`;
+            document.getElementById('modal-query').textContent = query || 'No query available';
+            document.getElementById('modal-feedback').innerHTML = `
+                <div class="flex gap-4">
+                    <span class="material-symbols-outlined ${helpful ? 'text-green-500' : 'text-red-400'}">
+                        ${helpful ? 'thumb_up' : 'thumb_down'}
+                    </span>
+                    <div>
+                        <p class="font-medium ${helpful ? 'text-green-100' : 'text-red-100'}">${helpful ? 'Positive' : 'Negative'} Feedback</p>
+                        <p class="text-sm text-[#90a7cb] mt-1">${comment || 'No comment provided'}</p>
+                    </div>
+                </div>
+            `;
+            document.getElementById('review-modal').classList.remove('hidden');
+            document.getElementById('review-modal').classList.add('flex');
+        }
+
+        // Close modal
+        function closeModal() {
+            document.getElementById('review-modal').classList.add('hidden');
+            document.getElementById('review-modal').classList.remove('flex');
+            currentFeedbackId = null;
+        }
+
+        // Mark as reviewed
+        async function markReviewed() {
+            if (!currentFeedbackId) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/feedback/${currentFeedbackId}/reviewed`, {
+                    method: 'POST'
+                });
+                if (!response.ok) throw new Error('Failed to mark as reviewed');
+
+                closeModal();
+                loadPendingFeedback();
+                loadOverview(currentPeriod);
+            } catch (error) {
+                console.error('Error marking as reviewed:', error);
+                alert('Failed to mark as reviewed');
+            }
+        }
+
+        // Get time ago string
+        function getTimeAgo(date) {
+            const seconds = Math.floor((new Date() - date) / 1000);
+            if (seconds < 60) return 'Just now';
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+            if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+            return `${Math.floor(seconds / 86400)}d ago`;
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Refresh data
+        async function refreshData() {
+            const icon = document.getElementById('refresh-icon');
+            icon.classList.add('animate-spin');
+
+            await Promise.all([
+                loadOverview(currentPeriod),
+                loadPendingFeedback()
+            ]);
+
+            icon.classList.remove('animate-spin');
+        }
+
+        // Load dashboard
+        async function loadDashboard(period) {
+            currentPeriod = period;
+            await refreshData();
+        }
+
+        // Start auto-refresh timer
+        function startRefreshTimer() {
+            let seconds = 30;
+            const timerEl = document.getElementById('refresh-timer');
+
+            if (refreshInterval) clearInterval(refreshInterval);
+
+            refreshInterval = setInterval(() => {
+                seconds--;
+                timerEl.textContent = `Auto-refresh in ${seconds}s`;
+
+                if (seconds <= 0) {
+                    seconds = 30;
+                    refreshData();
+                }
+            }, 1000);
+        }
+
+        // Theme toggle
+        document.getElementById('theme-toggle').addEventListener('click', () => {
+            document.documentElement.classList.toggle('dark');
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadDashboard('today');
+            // startRefreshTimer();
+        });
+    </script>
+</body>
+
+</html>

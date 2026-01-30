@@ -26,6 +26,9 @@ torch>=2.0.0  # Explicit PyTorch (avoids MLX issues on Apple Silicon)
 redis>=5.2.0
 hiredis>=3.0.0  # Faster Redis parser
 
+# SQLite (async)
+aiosqlite>=0.20.0
+
 # HTTP Client (async, for Academy MCP)
 httpx>=0.27.0
 

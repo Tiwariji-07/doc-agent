@@ -16,6 +16,7 @@ from typing import Any, AsyncGenerator, Optional
 from src.api.models import Source, Video
 from src.config.settings import get_settings
 from src.core.providers import get_llm_provider, BaseLLMProvider
+from src.core.providers.base import StreamResult, TokenUsage
 from src.core.retriever import RetrievedDocument
 
 logger = logging.getLogger(__name__)
@@ -177,7 +178,7 @@ class ResponseGenerator:
         provider = self._get_provider()
         user_prompt = self._build_user_prompt(query, documents, videos)
 
-        answer = await provider.generate(
+        result = await provider.generate(
             system_prompt=SYSTEM_PROMPT,
             user_message=user_prompt,
             temperature=self.settings.llm_temperature,
@@ -187,11 +188,21 @@ class ResponseGenerator:
         sources = self._extract_sources(documents)
         video_list = self._extract_videos(videos) if videos else []
 
-        return {
-            "answer": answer,
+        response = {
+            "answer": result.text,
             "sources": sources,
             "videos": video_list,
         }
+        
+        # Include token usage if available
+        if result.usage:
+            response["usage"] = {
+                "input_tokens": result.usage.input_tokens,
+                "output_tokens": result.usage.output_tokens,
+                "total_tokens": result.usage.total_tokens,
+            }
+        
+        return response
 
     async def generate_stream(
         self,
@@ -208,14 +219,20 @@ class ResponseGenerator:
         provider = self._get_provider()
         user_prompt = self._build_user_prompt(query, documents, videos)
 
+        usage: TokenUsage | None = None
+        
         try:
-            async for text in provider.generate_stream(
+            async for chunk in provider.generate_stream(
                 system_prompt=SYSTEM_PROMPT,
                 user_message=user_prompt,
                 temperature=self.settings.llm_temperature,
                 max_tokens=self.settings.llm_max_tokens,
             ):
-                yield {"type": "text", "content": text}
+                # StreamResult contains usage at end of stream
+                if isinstance(chunk, StreamResult):
+                    usage = chunk.usage
+                else:
+                    yield {"type": "text", "content": chunk}
 
             # After text is complete, yield sources and videos
             sources = self._extract_sources(documents)
@@ -225,7 +242,15 @@ class ResponseGenerator:
                 video_list = self._extract_videos(videos)
                 yield {"type": "videos", "videos": [v.model_dump() for v in video_list]}
 
-            yield {"type": "done", "provider": self.settings.ai_provider}
+            # Include usage in done chunk
+            done_chunk = {"type": "done", "provider": self.settings.ai_provider}
+            if usage:
+                done_chunk["usage"] = {
+                    "input_tokens": usage.input_tokens,
+                    "output_tokens": usage.output_tokens,
+                    "total_tokens": usage.total_tokens,
+                }
+            yield done_chunk
 
         except Exception as e:
             logger.exception(f"Error during streaming generation: {e}")

@@ -68,6 +68,10 @@ class ChatResponse(BaseModel):
         default=False,
         description="Whether this response was served from cache",
     )
+    query_id: Optional[str] = Field(
+        None,
+        description="Unique query ID for feedback tracking",
+    )
 
 
 class StreamChunk(BaseModel):
@@ -85,6 +89,9 @@ class StreamChunk(BaseModel):
     error: Optional[str] = Field(None, description="Error message for 'error' chunk")
     cached: Optional[bool] = Field(
         None, description="Cache status for 'done' chunk"
+    )
+    query_id: Optional[str] = Field(
+        None, description="Query ID for 'done' chunk, used for feedback"
     )
 
 

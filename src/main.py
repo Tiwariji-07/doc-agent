@@ -48,11 +48,22 @@ async def lifespan(app: FastAPI):
     
     logger.info(f"Qdrant Collection: {settings.qdrant_collection_name}")
 
+    # Start analytics background worker
+    if settings.analytics_enabled:
+        from src.analytics.worker import start_worker
+        await start_worker()
+        logger.info("Analytics enabled")
+
     # Startup: Initialize connections (done lazily in modules)
     yield
 
     # Shutdown: Cleanup
     logger.info("Shutting down WaveMaker Docs Agent...")
+    
+    # Stop analytics worker
+    if settings.analytics_enabled:
+        from src.analytics.worker import stop_worker
+        await stop_worker()
 
 
 def create_app() -> FastAPI:
@@ -78,6 +89,25 @@ def create_app() -> FastAPI:
 
     # Include API routes
     app.include_router(router, prefix="/api")
+    
+    # Include analytics routes
+    if settings.analytics_enabled:
+        from src.api.analytics import router as analytics_router
+        app.include_router(analytics_router)
+    
+    # Mount static files for dashboard
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import RedirectResponse, FileResponse
+    import os
+    
+    static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
+    if os.path.exists(static_dir):
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+        
+        @app.get("/analytics")
+        async def analytics_dashboard():
+            """Redirect to analytics dashboard."""
+            return FileResponse(os.path.join(static_dir, "analytics.html"))
 
     return app
 

@@ -3,6 +3,7 @@ Ollama provider implementation.
 
 Uses OpenAI-compatible API for local Ollama models.
 Ollama provides an OpenAI-compatible endpoint at /v1/chat/completions.
+Token usage tracking included (when available from Ollama).
 """
 
 import logging
@@ -10,7 +11,7 @@ from typing import AsyncGenerator, Optional
 
 from openai import AsyncOpenAI
 
-from src.core.providers.base import BaseLLMProvider
+from src.core.providers.base import BaseLLMProvider, GenerationResult, StreamResult, TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +49,22 @@ class OllamaProvider(BaseLLMProvider):
             )
         return self._client
 
+    def _extract_usage(self, response) -> TokenUsage:
+        """Extract token usage from Ollama response (if available)."""
+        if hasattr(response, "usage") and response.usage:
+            return TokenUsage(
+                input_tokens=getattr(response.usage, "prompt_tokens", 0),
+                output_tokens=getattr(response.usage, "completion_tokens", 0),
+            )
+        return TokenUsage()
+
     async def generate(
         self,
         system_prompt: str,
         user_message: str,
         temperature: float = 0.2,
         max_tokens: int = 2048,
-    ) -> str:
+    ) -> GenerationResult:
         """Generate a complete response using Ollama."""
         client = self._get_client()
 
@@ -68,7 +78,10 @@ class OllamaProvider(BaseLLMProvider):
                     {"role": "user", "content": user_message},
                 ],
             )
-            return response.choices[0].message.content or ""
+            return GenerationResult(
+                text=response.choices[0].message.content or "",
+                usage=self._extract_usage(response),
+            )
 
         except Exception as e:
             logger.error(f"Ollama generation error: {e}")
@@ -80,7 +93,7 @@ class OllamaProvider(BaseLLMProvider):
         user_message: str,
         temperature: float = 0.2,
         max_tokens: int = 2048,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str | StreamResult, None]:
         """Generate a streaming response using Ollama."""
         client = self._get_client()
 
@@ -96,10 +109,21 @@ class OllamaProvider(BaseLLMProvider):
                 stream=True,
             )
 
+            usage = TokenUsage()
             async for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
+                
+                # Capture usage if available
+                if hasattr(chunk, "usage") and chunk.usage:
+                    usage = TokenUsage(
+                        input_tokens=getattr(chunk.usage, "prompt_tokens", 0),
+                        output_tokens=getattr(chunk.usage, "completion_tokens", 0),
+                    )
+            
+            yield StreamResult(usage=usage)
 
         except Exception as e:
             logger.error(f"Ollama streaming error: {e}")
             raise RuntimeError(f"Ollama error: {e}. Is Ollama running at {self._base_url}?")
+

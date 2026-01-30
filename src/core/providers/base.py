@@ -5,7 +5,37 @@ Defines the interface that all provider implementations must follow.
 """
 
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator
+from dataclasses import dataclass, field
+from typing import AsyncGenerator, Optional
+
+
+@dataclass
+class TokenUsage:
+    """Token usage statistics from LLM response."""
+    
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0  # Anthropic-specific
+    cache_creation_tokens: int = 0  # Anthropic-specific
+    
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+
+@dataclass
+class GenerationResult:
+    """Result from a generation request, including text and usage."""
+    
+    text: str
+    usage: Optional[TokenUsage] = None
+
+
+@dataclass
+class StreamResult:
+    """Final result after streaming, with accumulated usage."""
+    
+    usage: Optional[TokenUsage] = None
 
 
 class BaseLLMProvider(ABC):
@@ -30,7 +60,7 @@ class BaseLLMProvider(ABC):
         user_message: str,
         temperature: float = 0.2,
         max_tokens: int = 2048,
-    ) -> str:
+    ) -> GenerationResult:
         """
         Generate a complete response.
 
@@ -41,7 +71,7 @@ class BaseLLMProvider(ABC):
             max_tokens: Maximum tokens to generate
 
         Returns:
-            The generated text response
+            GenerationResult with text and token usage
         """
         ...
 
@@ -52,7 +82,7 @@ class BaseLLMProvider(ABC):
         user_message: str,
         temperature: float = 0.2,
         max_tokens: int = 2048,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str | StreamResult, None]:
         """
         Generate a streaming response.
 
@@ -63,6 +93,7 @@ class BaseLLMProvider(ABC):
             max_tokens: Maximum tokens to generate
 
         Yields:
-            Text chunks as they are generated
+            Text chunks as they are generated, then StreamResult with usage at end
         """
         ...
+
