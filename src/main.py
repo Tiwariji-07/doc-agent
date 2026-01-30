@@ -36,7 +36,16 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info("Starting WaveMaker Docs Agent...")
     logger.info(f"Debug mode: {settings.debug}")
-    logger.info(f"LLM Model: {settings.llm_model}")
+    logger.info(f"AI Provider: {settings.ai_provider}")
+    
+    # Log the model for the selected provider
+    if settings.ai_provider == "anthropic":
+        logger.info(f"Model: {settings.anthropic_model}")
+    elif settings.ai_provider == "openai":
+        logger.info(f"Model: {settings.openai_model}")
+    elif settings.ai_provider == "ollama":
+        logger.info(f"Model: {settings.ollama_model} @ {settings.ollama_base_url}")
+    
     logger.info(f"Qdrant Collection: {settings.qdrant_collection_name}")
 
     # Startup: Initialize connections (done lazily in modules)

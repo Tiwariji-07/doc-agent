@@ -9,6 +9,9 @@ sse-starlette>=2.1.0  # Server-Sent Events for streaming
 # LLM - Anthropic Claude
 anthropic>=0.40.0
 
+# LLM - OpenAI (also used for Ollama's OpenAI-compatible API)
+openai>=1.59.0
+
 # Vector Database - Qdrant Cloud
 qdrant-client>=1.12.0
 

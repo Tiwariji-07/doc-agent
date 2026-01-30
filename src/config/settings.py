@@ -20,8 +20,41 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # === API Keys ===
-    anthropic_api_key: str = Field(..., description="Anthropic API key for Claude")
+    # === AI Provider Selection ===
+    ai_provider: str = Field(
+        default="anthropic",
+        description="AI provider: 'anthropic', 'openai', or 'ollama'",
+    )
+
+    # === Provider-Specific API Keys ===
+    anthropic_api_key: Optional[str] = Field(
+        default=None,
+        description="Anthropic API key for Claude",
+    )
+    openai_api_key: Optional[str] = Field(
+        default=None,
+        description="OpenAI API key for GPT models",
+    )
+
+    # === Provider-Specific Models ===
+    anthropic_model: str = Field(
+        default="claude-sonnet-4-5-20250929",
+        description="Anthropic Claude model to use",
+    )
+    openai_model: str = Field(
+        default="gpt-4o",
+        description="OpenAI model to use",
+    )
+    ollama_model: str = Field(
+        default="llama3.2",
+        description="Ollama model to use",
+    )
+
+    # === Ollama Configuration ===
+    ollama_base_url: str = Field(
+        default="http://localhost:11434",
+        description="Ollama server base URL",
+    )
 
     # === Redis Configuration ===
     redis_url: str = Field(
@@ -78,11 +111,7 @@ class Settings(BaseSettings):
         description="Jina AI API key for reranking",
     )
 
-    # === LLM Configuration ===
-    llm_model: str = Field(
-        default="claude-sonnet-4-5-20250929",
-        description="Claude model to use for generation",
-    )
+    # === LLM Configuration (shared across providers) ===
     llm_temperature: float = Field(
         default=0.2,
         description="Temperature for LLM generation",
