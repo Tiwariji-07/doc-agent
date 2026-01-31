@@ -69,7 +69,7 @@ class QueryPipeline:
             return cached
 
         # Layer 2: Generate embeddings
-        dense_vector = self.embedder.embed_query(query)
+        dense_vector = await self.embedder.embed_query(query)
         sparse_vector = self.embedder.generate_sparse_vector(query)
 
         # Check semantic cache
@@ -144,7 +144,7 @@ class QueryPipeline:
             return
 
         # Layer 2: Generate embeddings
-        dense_vector = self.embedder.embed_query(query)
+        dense_vector = await self.embedder.embed_query(query)
         sparse_vector = self.embedder.generate_sparse_vector(query)
 
         # Check semantic cache

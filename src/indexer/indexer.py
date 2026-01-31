@@ -120,7 +120,7 @@ class DocumentIndexer:
             # Step 5: Generate embeddings (batched)
             logger.info("Generating embeddings...")
             contents = [chunk.content for chunk in all_chunks]
-            embeddings = self.embedder.embed_documents_batch(
+            embeddings = await self.embedder.embed_documents_batch(
                 contents,
                 batch_size=32,
             )

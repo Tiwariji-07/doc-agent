@@ -128,85 +128,94 @@ class Reranker:
             logger.exception(f"Jina reranking error: {e}")
             return documents[:top_k]
 
-    def _rerank_local(
+    async def _rerank_local(
         self,
         query: str,
         documents: list[RetrievedDocument],
         top_k: int,
     ) -> list[RetrievedDocument]:
-        """Rerank using local cross-encoder model."""
-        import torch
-        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+        """
+        Rerank using local cross-encoder model.
+        Runs in a thread pool to avoid blocking.
+        """
+        import asyncio
+        loop = asyncio.get_running_loop()
 
-        # Lazy load model
-        if self._local_model is None:
-            logger.info(f"Loading local reranker model: {self.settings.reranker_model}")
-            self._local_tokenizer = AutoTokenizer.from_pretrained(
-                self.settings.reranker_model
-            )
-            self._local_model = AutoModelForSequenceClassification.from_pretrained(
-                self.settings.reranker_model
-            )
-            self._local_model = self._local_model.to("cpu")
-            self._local_model.eval()
+        def _compute():
+            import torch
+            from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-        # Filter empty documents
-        valid_docs = [doc for doc in documents if doc.content and doc.content.strip()]
-        if not valid_docs:
-            return []
-
-        # Prepare pairs
-        pairs = [(query, doc.content[:2000]) for doc in valid_docs]
-        queries = [p[0] for p in pairs]
-        doc_texts = [p[1] for p in pairs]
-
-        # Tokenize and score
-        inputs = self._local_tokenizer(
-            queries,
-            doc_texts,
-            padding=True,
-            truncation=True,
-            max_length=512,
-            return_tensors="pt"
-        )
-
-        with torch.no_grad():
-            outputs = self._local_model(**inputs)
-            scores = outputs.logits.squeeze(-1).tolist()
-
-        if isinstance(scores, float):
-            scores = [scores]
-
-        # Log scores
-        logger.info(f"Local rerank scores: {[f'{s:.3f}' for s in scores[:3]]}")
-
-        # Sort and return top_k
-        scored_docs = list(zip(valid_docs, scores))
-        scored_docs.sort(key=lambda x: x[1], reverse=True)
-
-        reranked = []
-        for doc, score in scored_docs[:top_k]:
-            reranked.append(
-                RetrievedDocument(
-                    id=doc.id,
-                    content=doc.content,
-                    title=doc.title,
-                    url=doc.url,
-                    section=doc.section,
-                    source=doc.source,
-                    dense_score=doc.dense_score,
-                    sparse_score=doc.sparse_score,
-                    rrf_score=float(score),
-                    metadata=doc.metadata,
+            # Lazy load model
+            if self._local_model is None:
+                logger.info(f"Loading local reranker model: {self.settings.reranker_model}")
+                self._local_tokenizer = AutoTokenizer.from_pretrained(
+                    self.settings.reranker_model
                 )
+                self._local_model = AutoModelForSequenceClassification.from_pretrained(
+                    self.settings.reranker_model
+                )
+                self._local_model = self._local_model.to("cpu")
+                self._local_model.eval()
+
+            # Filter empty documents
+            valid_docs = [doc for doc in documents if doc.content and doc.content.strip()]
+            if not valid_docs:
+                return []
+
+            # Prepare pairs
+            pairs = [(query, doc.content[:2000]) for doc in valid_docs]
+            queries = [p[0] for p in pairs]
+            doc_texts = [p[1] for p in pairs]
+
+            # Tokenize and score
+            inputs = self._local_tokenizer(
+                queries,
+                doc_texts,
+                padding=True,
+                truncation=True,
+                max_length=512,
+                return_tensors="pt"
             )
 
-        top_score = reranked[0].rrf_score if reranked else 0.0
-        logger.info(
-            f"Local reranked {len(documents)} -> {len(reranked)} documents "
-            f"(top score: {top_score:.3f})"
-        )
-        return reranked
+            with torch.no_grad():
+                outputs = self._local_model(**inputs)
+                scores = outputs.logits.squeeze(-1).tolist()
+
+            if isinstance(scores, float):
+                scores = [scores]
+
+            # Log scores
+            logger.info(f"Local rerank scores: {[f'{s:.3f}' for s in scores[:3]]}")
+
+            # Sort and return top_k
+            scored_docs = list(zip(valid_docs, scores))
+            scored_docs.sort(key=lambda x: x[1], reverse=True)
+
+            reranked = []
+            for doc, score in scored_docs[:top_k]:
+                reranked.append(
+                    RetrievedDocument(
+                        id=doc.id,
+                        content=doc.content,
+                        title=doc.title,
+                        url=doc.url,
+                        section=doc.section,
+                        source=doc.source,
+                        dense_score=doc.dense_score,
+                        sparse_score=doc.sparse_score,
+                        rrf_score=float(score),
+                        metadata=doc.metadata,
+                    )
+                )
+
+            top_score = reranked[0].rrf_score if reranked else 0.0
+            logger.info(
+                f"Local reranked {len(documents)} -> {len(reranked)} documents "
+                f"(top score: {top_score:.3f})"
+            )
+            return reranked
+
+        return await loop.run_in_executor(None, _compute)
 
     def should_rerank(self, documents: list[RetrievedDocument]) -> bool:
         """Decide if reranking is needed."""

@@ -40,57 +40,75 @@ class Embedder:
             logger.info("Embedding model loaded successfully")
         return self._model
 
-    def embed_query(self, query: str) -> np.ndarray:
+    async def embed_query(self, query: str) -> np.ndarray:
         """
         Generate dense embedding for a query.
-        BGE models require a prefix for queries.
+        BGE models require a prefix for better retrieval.
+        Runs in a thread pool to avoid blocking the event loop.
         """
-        model = self._get_model()
-        # BGE models use query prefix for better retrieval
-        prefixed_query = f"Represent this sentence for searching relevant passages: {query}"
-        embedding = model.encode(
-            prefixed_query,
-            normalize_embeddings=True,
-            show_progress_bar=False,
-        )
-        return np.array(embedding, dtype=np.float32)
+        import asyncio
+        loop = asyncio.get_running_loop()
+        
+        def _compute():
+            model = self._get_model()
+            prefixed_query = f"Represent this sentence for searching relevant passages: {query}"
+            embedding = model.encode(
+                prefixed_query,
+                normalize_embeddings=True,
+                show_progress_bar=False,
+            )
+            return np.array(embedding, dtype=np.float32)
 
-    def embed_document(self, document: str) -> np.ndarray:
+        return await loop.run_in_executor(None, _compute)
+
+    async def embed_document(self, document: str) -> np.ndarray:
         """
         Generate dense embedding for a document.
-        Documents don't need the query prefix.
+        Runs in a thread pool.
         """
-        model = self._get_model()
-        embedding = model.encode(
-            document,
-            normalize_embeddings=True,
-            show_progress_bar=False,
-        )
-        return np.array(embedding, dtype=np.float32)
+        import asyncio
+        loop = asyncio.get_running_loop()
+        
+        def _compute():
+            model = self._get_model()
+            embedding = model.encode(
+                document,
+                normalize_embeddings=True,
+                show_progress_bar=False,
+            )
+            return np.array(embedding, dtype=np.float32)
 
-    def embed_documents_batch(
+        return await loop.run_in_executor(None, _compute)
+
+    async def embed_documents_batch(
         self,
         documents: list[str],
         batch_size: int = 32,
     ) -> list[np.ndarray]:
         """
         Generate embeddings for multiple documents in batches.
-        More efficient than embedding one at a time.
+        Runs in a thread pool.
         """
-        model = self._get_model()
-        embeddings = model.encode(
-            documents,
-            normalize_embeddings=True,
-            show_progress_bar=True,
-            batch_size=batch_size,
-        )
-        return [np.array(emb, dtype=np.float32) for emb in embeddings]
+        import asyncio
+        loop = asyncio.get_running_loop()
+        
+        def _compute():
+            model = self._get_model()
+            embeddings = model.encode(
+                documents,
+                normalize_embeddings=True,
+                show_progress_bar=True,
+                batch_size=batch_size,
+            )
+            return [np.array(emb, dtype=np.float32) for emb in embeddings]
+
+        return await loop.run_in_executor(None, _compute)
 
     def generate_sparse_vector(self, text: str) -> dict[int, float]:
         """
         Generate BM25-style sparse vector from text.
         Returns dict of {token_index: weight} using hash for indices.
-        Qdrant requires integer indices for sparse vectors.
+        FAST enough to remain CPU-bound sync, but can be offloaded if needed.
         """
         # Tokenize
         tokens = self._tokenize(text)
