@@ -86,7 +86,7 @@ class Settings(BaseSettings):
 
     # === Academy MCP Configuration ===
     academy_mcp_url: Optional[str] = Field(
-        default=None,
+        default="https://dev-academyservices.wavemaker.com/mcp",
         description="Academy MCP server URL (optional)",
     )
 

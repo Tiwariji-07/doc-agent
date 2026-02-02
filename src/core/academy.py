@@ -1,44 +1,141 @@
 """
 Academy MCP client for fetching video recommendations.
 
-Connects to the Academy MCP server to get relevant videos
-based on the query.
+Connects to the Academy MCP server using the Model Context Protocol
+with streamable HTTP transport to get relevant videos based on the query.
 """
 
+import asyncio
+import json
 import logging
+import time
 from typing import Any, Optional
 
-import httpx
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
 
 from src.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Connection configuration
+MCP_CONNECT_TIMEOUT = 10.0  # seconds
+MCP_SESSION_MAX_AGE = 300  # 5 minutes - recreate session after this time
+MCP_CALL_TIMEOUT = 15.0  # seconds - timeout for tool calls
 
 
 class AcademyClient:
     """
     Client for WaveMaker Academy MCP server.
 
-    Currently fetches video metadata (title, URL, duration).
-    Phase 2 will add transcript content for better integration.
+    Uses Model Context Protocol (MCP) with streamable HTTP transport
+    to call the wm-academy-semantic-search tool.
+
+    Features:
+    - Automatic reconnection on timeout
+    - Session age tracking to prevent stale connections
+    - Configurable timeouts
     """
 
     def __init__(self):
         self.settings = get_settings()
-        self._client: Optional[httpx.AsyncClient] = None
-
-    async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client."""
-        if self._client is None:
-            self._client = httpx.AsyncClient(
-                timeout=10.0,  # 10 second timeout
-            )
-        return self._client
+        self._session: Optional[ClientSession] = None
+        self._read = None
+        self._write = None
+        self._context = None
+        self._session_created_at: Optional[float] = None
 
     @property
     def is_configured(self) -> bool:
         """Check if Academy MCP is configured."""
         return bool(self.settings.academy_mcp_url)
+
+    def _is_session_stale(self) -> bool:
+        """Check if current session is stale and needs recreation."""
+        if self._session is None or self._session_created_at is None:
+            return True
+
+        age = time.time() - self._session_created_at
+        if age > MCP_SESSION_MAX_AGE:
+            logger.debug(f"MCP session is stale (age: {age:.1f}s > {MCP_SESSION_MAX_AGE}s)")
+            return True
+
+        return False
+
+    async def _close_session(self) -> None:
+        """Close current MCP session and cleanup resources."""
+        if self._session:
+            try:
+                await self._session.__aexit__(None, None, None)
+            except Exception as e:
+                logger.debug(f"Error closing MCP session: {e}")
+            finally:
+                self._session = None
+
+        if self._context:
+            try:
+                await self._context.__aexit__(None, None, None)
+            except Exception as e:
+                logger.debug(f"Error closing streamable HTTP context: {e}")
+            finally:
+                self._context = None
+                self._read = None
+                self._write = None
+
+        self._session_created_at = None
+
+    async def _ensure_session(self) -> ClientSession:
+        """
+        Get or create MCP session.
+
+        Establishes a persistent session with the Academy MCP server
+        using streamable HTTP transport. Automatically recreates stale sessions.
+
+        Returns:
+            ClientSession: Active MCP session
+
+        Raises:
+            ValueError: If Academy MCP URL is not configured
+        """
+        if not self.is_configured:
+            raise ValueError("Academy MCP URL not configured")
+
+        # Check if session needs recreation
+        if self._is_session_stale():
+            logger.debug("Recreating stale MCP session...")
+            await self._close_session()
+
+        # Create new session if needed
+        if self._session is None:
+            try:
+                # Create streamable HTTP client with timeout
+                logger.debug(f"Connecting to MCP server: {self.settings.academy_mcp_url}")
+                self._context = streamablehttp_client(self.settings.academy_mcp_url)
+
+                # Set connection timeout
+                try:
+                    self._read, self._write, _ = await asyncio.wait_for(
+                        self._context.__aenter__(),
+                        timeout=MCP_CONNECT_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    raise TimeoutError(f"MCP connection timed out after {MCP_CONNECT_TIMEOUT}s")
+
+                # Create and initialize MCP session
+                self._session = ClientSession(self._read, self._write)
+                await self._session.__aenter__()
+                await self._session.initialize()
+
+                self._session_created_at = time.time()
+                logger.info(f"MCP session initialized with Academy server (timeout: {MCP_SESSION_MAX_AGE}s)")
+
+            except Exception as e:
+                logger.error(f"Failed to initialize MCP session: {e}")
+                # Clean up partial state
+                await self._close_session()
+                raise
+
+        return self._session
 
     async def search_videos(
         self,
@@ -46,79 +143,87 @@ class AcademyClient:
         limit: int = 3,
     ) -> list[dict[str, Any]]:
         """
-        Search for relevant videos in Academy.
+        Search for relevant videos using MCP tool.
+
+        Calls the wm-academy-semantic-search tool on the Academy MCP server
+        to find videos related to the query.
 
         Args:
             query: Search query
-            limit: Maximum number of videos to return
+            limit: Maximum number of videos to return (default: 3)
 
         Returns:
-            List of video metadata dicts
+            List of video metadata dicts with keys:
+            - id: Video ID
+            - title: Video title
+            - description: Video description
+            - moduleName: Module name
+            - code: Video code (e.g., CHAP_66)
+            - link: Video URL
         """
         if not self.is_configured:
             logger.debug("Academy MCP not configured, skipping video search")
             return []
 
-        try:
-            client = await self._get_client()
-            url = f"{self.settings.academy_mcp_url}/search"
+        # Retry logic for transient connection errors
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                logger.debug(f"Searching Academy videos for query: {query[:50]}... (attempt {attempt + 1}/{max_retries})")
+                session = await self._ensure_session()
 
-            response = await client.post(
-                url,
-                json={
-                    "query": query,
-                    "limit": limit,
-                },
-            )
-            response.raise_for_status()
+                # Call the MCP tool with timeout
+                logger.debug(f"Calling MCP tool: wm-academy-semantic-search with limit={limit}")
+                try:
+                    result = await asyncio.wait_for(
+                        session.call_tool(
+                            name="wm-academy-semantic-search",
+                            arguments={
+                                "query": query,
+                                "limit": limit,
+                            },
+                        ),
+                        timeout=MCP_CALL_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    raise TimeoutError(f"MCP tool call timed out after {MCP_CALL_TIMEOUT}s")
 
-            data = response.json()
-            videos = data.get("results", [])
+                # Parse MCP response
+                # The tool returns a JSON string in result.content[0].text
+                response_text = result.content[0].text
+                logger.debug(f"MCP response received: {response_text[:200]}...")
+                data = json.loads(response_text)
 
-            logger.info(f"Found {len(videos)} videos for query: {query[:50]}...")
-            return videos
+                # Extract videos from body array
+                # Response format: {"headers": {}, "body": [...], "statusCodeValue": 200}
+                videos = data.get("body", [])
 
-        except httpx.TimeoutException:
-            logger.warning("Academy MCP request timed out")
-            return []
-        except httpx.HTTPError as e:
-            logger.warning(f"Academy MCP request failed: {e}")
-            return []
-        except Exception as e:
-            logger.warning(f"Academy MCP unexpected error: {e}")
-            return []
+                logger.info(f"Found {len(videos)} videos for query: {query[:50]}...")
+                return videos
 
-    async def get_video_details(
-        self,
-        video_id: str,
-    ) -> Optional[dict[str, Any]]:
-        """
-        Get detailed information about a specific video.
+            except (TimeoutError, ConnectionError, asyncio.TimeoutError) as e:
+                # Connection/timeout errors - retry with fresh session
+                logger.warning(f"MCP connection error on attempt {attempt + 1}: {e}")
+                await self._close_session()  # Force session recreation
 
-        Args:
-            video_id: Video identifier
+                if attempt < max_retries - 1:
+                    logger.debug(f"Retrying with new session...")
+                    await asyncio.sleep(0.5)  # Brief delay before retry
+                else:
+                    logger.error(f"Academy MCP search failed after {max_retries} attempts")
+                    return []
 
-        Returns:
-            Video details including transcript (if available)
-        """
-        if not self.is_configured:
-            return None
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse Academy MCP response: {e}", exc_info=True)
+                return []
 
-        try:
-            client = await self._get_client()
-            url = f"{self.settings.academy_mcp_url}/videos/{video_id}"
+            except Exception as e:
+                logger.error(f"Academy MCP search failed ({type(e).__name__}): {e}", exc_info=True)
+                return []
 
-            response = await client.get(url)
-            response.raise_for_status()
-
-            return response.json()
-
-        except Exception as e:
-            logger.warning(f"Failed to get video details: {e}")
-            return None
+        return []
 
     async def close(self) -> None:
-        """Close HTTP client."""
-        if self._client:
-            await self._client.aclose()
-            self._client = None
+        """Close MCP session and cleanup resources."""
+        await self._close_session()
+        logger.debug("Academy MCP client closed")

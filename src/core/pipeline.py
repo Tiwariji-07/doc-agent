@@ -15,6 +15,7 @@ from typing import Any, AsyncGenerator, Optional
 
 import numpy as np
 
+from src.config.settings import get_settings
 from src.core.academy import AcademyClient
 from src.core.cache import SemanticCache
 from src.core.embedder import Embedder
@@ -32,14 +33,14 @@ class QueryPipeline:
     Flow:
     1. Check cache (exact match, then semantic)
     2. Generate query embeddings (dense + sparse)
-    3. Retrieve documents from Qdrant (hybrid search)
-    4. Fetch Academy videos (parallel with retrieval)
-    5. Rerank results with cross-encoder
-    6. Generate response with Claude
-    7. Cache the response
+    3. Retrieve documents from Qdrant + videos from Academy (parallel)
+    4. Rerank documents with cross-encoder (videos not reranked)
+    5. Generate response with Claude
+    6. Cache the response
     """
 
     def __init__(self):
+        self.settings = get_settings()
         self.cache = SemanticCache()
         self.embedder = Embedder()
         self.retriever = HybridRetriever()
@@ -78,13 +79,29 @@ class QueryPipeline:
             semantic_cached["cached"] = True
             return semantic_cached
 
-        # Layer 3: Retrieve documents
-        # Note: Academy MCP disabled until server is ready
-        documents = await self.retriever.search(
+        # Layer 3: Retrieve documents and videos in parallel
+        documents_task = self.retriever.search(
             dense_vector=dense_vector,
             sparse_vector=sparse_vector,
         )
-        videos = []  # Empty until Academy MCP is ready
+        videos_task = self.academy.search_videos(query, limit=3)
+
+        # Execute both searches concurrently
+        results = await asyncio.gather(
+            documents_task,
+            videos_task,
+            return_exceptions=True,
+        )
+
+        # Handle results and exceptions (including CancelledError which inherits from BaseException)
+        documents = results[0] if isinstance(results[0], list) else []
+        videos = results[1] if isinstance(results[1], list) else []
+
+        # Log any failures
+        if not isinstance(results[0], list):
+            logger.error(f"Document retrieval failed ({type(results[0]).__name__}): {results[0]}")
+        if not isinstance(results[1], list):
+            logger.warning(f"Video search failed ({type(results[1]).__name__}): {results[1]}")
 
         # Layer 4: Rerank documents
         if documents and self.reranker.should_rerank(documents):
@@ -158,13 +175,29 @@ class QueryPipeline:
             yield {"type": "done", "cached": True}
             return
 
-        # Layer 3: Retrieve documents
-        # Note: Academy MCP disabled until server is ready
-        documents = await self.retriever.search(
+        # Layer 3: Retrieve documents and videos in parallel
+        documents_task = self.retriever.search(
             dense_vector=dense_vector,
             sparse_vector=sparse_vector,
         )
-        videos = []  # Empty until Academy MCP is ready
+        videos_task = self.academy.search_videos(query, limit=3)
+
+        # Execute both searches concurrently
+        results = await asyncio.gather(
+            documents_task,
+            videos_task,
+            return_exceptions=True,
+        )
+
+        # Handle results and exceptions (including CancelledError which inherits from BaseException)
+        documents = results[0] if isinstance(results[0], list) else []
+        videos = results[1] if isinstance(results[1], list) else []
+
+        # Log any failures
+        if not isinstance(results[0], list):
+            logger.error(f"Document retrieval failed ({type(results[0]).__name__}): {results[0]}")
+        if not isinstance(results[1], list):
+            logger.warning(f"Video search failed ({type(results[1]).__name__}): {results[1]}")
 
         # Layer 4: Rerank documents
         if documents and self.reranker.should_rerank(documents):

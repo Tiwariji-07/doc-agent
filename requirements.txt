@@ -29,8 +29,11 @@ hiredis>=3.0.0  # Faster Redis parser
 # SQLite (async)
 aiosqlite>=0.20.0
 
-# HTTP Client (async, for Academy MCP)
+# HTTP Client (async)
 httpx>=0.27.0
+
+# Model Context Protocol (MCP) - Official SDK for Academy integration
+mcp>=1.2.0  # Python 3.13 compatible
 
 # Markdown Parsing
 python-frontmatter>=1.1.0

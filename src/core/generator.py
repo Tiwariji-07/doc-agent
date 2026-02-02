@@ -132,7 +132,8 @@ class ResponseGenerator:
             parts.append("\n## 🎬 Related Videos (supplementary)\n")
             for video in videos:
                 duration = f" ({video.get('duration', 'N/A')})" if video.get('duration') else ""
-                parts.append(f"📺 \"{video.get('title', 'Video')}\" - {video.get('url', '')}{duration}")
+                # Academy MCP uses "link" field, not "url"
+                parts.append(f"📺 \"{video.get('title', 'Video')}\" - {video.get('link', '')}{duration}")
             parts.append("")
             parts.append("*(Note: Video titles are provided for recommendation. You do not have access to their content.)*")
 
@@ -272,11 +273,16 @@ class ResponseGenerator:
         return sources
 
     def _extract_videos(self, videos: list[dict[str, Any]]) -> list[Video]:
-        """Extract video objects from video data."""
+        """
+        Extract video objects from Academy MCP response.
+
+        Academy MCP returns videos with fields:
+        - title, description, moduleName, code, link (not url)
+        """
         return [
             Video(
                 title=v.get("title", "Video"),
-                url=v.get("url", ""),
+                url=v.get("link", ""),  # Academy MCP uses "link" field
                 duration=v.get("duration"),
             )
             for v in videos
