@@ -160,9 +160,9 @@ class Settings(BaseSettings):
         default=True,
         description="Enable analytics tracking",
     )
-    analytics_db_path: str = Field(
-        default="data/analytics.db",
-        description="SQLite database path for analytics",
+    analytics_db_url: str = Field(
+        default="postgresql://postgres:postgres@localhost:5432/docs_agent",
+        description="Postgres connection URL for analytics",
     )
     analytics_batch_size: int = Field(
         default=100,

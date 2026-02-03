@@ -1,7 +1,7 @@
 """
 Analytics module for docs-agent.
 
-Provides non-blocking event tracking with Redis queue and SQLite storage.
+Provides non-blocking event tracking with Redis queue and Postgres storage.
 """
 
 from src.analytics.collector import track_query, track_feedback, get_analytics
@@ -18,4 +18,3 @@ __all__ = [
     "calculate_cost",
     "PRICING",
 ]
-

@@ -1,5 +1,5 @@
 """
-Background worker for flushing analytics events from Redis to SQLite.
+Background worker for flushing analytics events from Redis to Postgres.
 
 Runs as an asyncio task, batch-inserting events periodically.
 """
@@ -7,6 +7,7 @@ Runs as an asyncio task, batch-inserting events periodically.
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 import redis.asyncio as redis
@@ -70,7 +71,7 @@ async def _worker_loop() -> None:
 
 
 async def _flush_events(redis_client: redis.Redis, settings) -> None:
-    """Flush events from Redis to SQLite."""
+    """Flush events from Redis queues to Postgres."""
     # Flush query events
     await _flush_queue(
         redis_client,
@@ -121,23 +122,70 @@ async def _flush_queue(
         logger.exception(f"Failed to insert events: {e}")
 
 
+QUERY_UPSERT_SQL = """
+INSERT INTO query_events (
+    id, timestamp, query, session_id, provider, model,
+    response_time_ms, tokens_input, tokens_output,
+    sources_count, cache_hit, error
+)
+VALUES (
+    $1, $2, $3, $4, $5, $6,
+    $7, $8, $9,
+    $10, $11, $12
+)
+ON CONFLICT (id) DO UPDATE SET
+    timestamp = EXCLUDED.timestamp,
+    query = EXCLUDED.query,
+    session_id = EXCLUDED.session_id,
+    provider = EXCLUDED.provider,
+    model = EXCLUDED.model,
+    response_time_ms = EXCLUDED.response_time_ms,
+    tokens_input = EXCLUDED.tokens_input,
+    tokens_output = EXCLUDED.tokens_output,
+    sources_count = EXCLUDED.sources_count,
+    cache_hit = EXCLUDED.cache_hit,
+    error = EXCLUDED.error;
+"""
+
+FEEDBACK_UPSERT_SQL = """
+INSERT INTO feedback (
+    id, timestamp, query_id, helpful, comment, reviewed
+)
+VALUES ($1, $2, $3, $4, $5, FALSE)
+ON CONFLICT (id) DO UPDATE SET
+    timestamp = EXCLUDED.timestamp,
+    query_id = EXCLUDED.query_id,
+    helpful = EXCLUDED.helpful,
+    comment = EXCLUDED.comment,
+    reviewed = EXCLUDED.reviewed;
+"""
+
+
+def _parse_timestamp(value: str | None) -> datetime:
+    """Parse ISO timestamp strings from queued events."""
+    if not value:
+        return datetime.now(timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except ValueError:
+        logger.warning(f"Invalid timestamp format: {value}")
+        return datetime.now(timezone.utc)
+
+
 async def _insert_query_events(events: list[dict]) -> None:
-    """Batch insert query events to SQLite."""
+    """Batch insert query events to Postgres."""
+    if not events:
+        return
+
     db = await get_db()
-    conn = await db.get_connection()
-    
-    await conn.executemany(
-        """
-        INSERT OR REPLACE INTO query_events 
-        (id, timestamp, query, session_id, provider, model, 
-         response_time_ms, tokens_input, tokens_output, 
-         sources_count, cache_hit, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        [
+    async with db.connection() as conn:
+        records = [
             (
                 e["id"],
-                e["timestamp"],
+                _parse_timestamp(e.get("timestamp")),
                 e["query"],
                 e.get("session_id"),
                 e["provider"],
@@ -146,35 +194,31 @@ async def _insert_query_events(events: list[dict]) -> None:
                 e.get("tokens_input"),
                 e.get("tokens_output"),
                 e.get("sources_count", 0),
-                1 if e.get("cache_hit") else 0,
+                bool(e.get("cache_hit")),
                 e.get("error"),
             )
             for e in events
-        ],
-    )
-    await conn.commit()
+        ]
+        async with conn.transaction():
+            await conn.executemany(QUERY_UPSERT_SQL, records)
 
 
 async def _insert_feedback_events(events: list[dict]) -> None:
-    """Batch insert feedback events to SQLite."""
+    """Batch insert feedback events to Postgres."""
+    if not events:
+        return
+
     db = await get_db()
-    conn = await db.get_connection()
-    
-    await conn.executemany(
-        """
-        INSERT OR REPLACE INTO feedback 
-        (id, timestamp, query_id, helpful, comment, reviewed)
-        VALUES (?, ?, ?, ?, ?, 0)
-        """,
-        [
+    async with db.connection() as conn:
+        records = [
             (
                 e["id"],
-                e["timestamp"],
+                _parse_timestamp(e.get("timestamp")),
                 e["query_id"],
-                1 if e["helpful"] else 0,
+                bool(e["helpful"]),
                 e.get("comment"),
             )
             for e in events
-        ],
-    )
-    await conn.commit()
+        ]
+        async with conn.transaction():
+            await conn.executemany(FEEDBACK_UPSERT_SQL, records)
