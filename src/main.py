@@ -54,6 +54,16 @@ async def lifespan(app: FastAPI):
         await start_worker()
         logger.info("Analytics enabled")
 
+    # Warm critical models to avoid first-request latency spikes
+    try:
+        from src.api.routes import get_pipeline
+
+        pipeline = get_pipeline()
+        await pipeline.embedder.embed_query("Warmup: WaveMaker docs assistant ready")
+        logger.info("Embedding model warm-up complete")
+    except Exception as exc:
+        logger.warning(f"Embedding model warm-up skipped: {exc}")
+
     # Startup: Initialize connections (done lazily in modules)
     yield
 

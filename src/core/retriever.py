@@ -7,6 +7,7 @@ Performs:
 - Reciprocal Rank Fusion (RRF) to combine results
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -106,33 +107,28 @@ class HybridRetriever:
             if conditions:
                 qdrant_filter = models.Filter(must=conditions)
 
-        # Execute hybrid search (dense + sparse)
-        dense_results = []
-        sparse_results = []
+        async def dense_search():
+            try:
+                response = await client.query_points(
+                    collection_name=collection,
+                    query=dense_vector.tolist(),
+                    using="dense",
+                    limit=top_k,
+                    query_filter=qdrant_filter,
+                    with_payload=True,
+                )
+                return response.points
+            except Exception as exc:
+                logger.warning(f"Dense search failed: {exc}")
+                return []
 
-        try:
-            # Dense search (semantic similarity)
-            dense_response = await client.query_points(
-                collection_name=collection,
-                query=dense_vector.tolist(),
-                using="dense",
-                limit=top_k,
-                query_filter=qdrant_filter,
-                with_payload=True,
-            )
-            dense_results = dense_response.points
-        except Exception as e:
-            logger.warning(f"Dense search failed: {e}")
-
-        try:
-            # Sparse search (keyword/lexical matching)
-            if sparse_vector:
-                # Convert sparse_vector dict to Qdrant sparse format
-                # sparse_vector is {token_id: weight} from embedder
+        async def sparse_search():
+            if not sparse_vector:
+                return []
+            try:
                 indices = list(sparse_vector.keys())
                 values = list(sparse_vector.values())
-                
-                sparse_response = await client.query_points(
+                response = await client.query_points(
                     collection_name=collection,
                     query=models.SparseVector(indices=indices, values=values),
                     using="sparse",
@@ -140,9 +136,15 @@ class HybridRetriever:
                     query_filter=qdrant_filter,
                     with_payload=True,
                 )
-                sparse_results = sparse_response.points
-        except Exception as e:
-            logger.warning(f"Sparse search failed: {e}")
+                return response.points
+            except Exception as exc:
+                logger.warning(f"Sparse search failed: {exc}")
+                return []
+
+        dense_results, sparse_results = await asyncio.gather(
+            dense_search(),
+            sparse_search(),
+        )
 
         # Combine with RRF
         combined = self._rrf_fusion(dense_results, sparse_results)
