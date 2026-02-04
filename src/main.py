@@ -88,26 +88,26 @@ def create_app() -> FastAPI:
         debug=settings.debug,
     )
 
-    # Configure CORS
-    allow_origins = settings.cors_allow_origins or ["*"]
-    allow_credentials = settings.cors_allow_credentials and "*" not in allow_origins
+    # Configure CORS only when origins are provided; otherwise assume an upstream proxy handles it
+    allow_origins = settings.cors_allow_origins or []
+    if allow_origins:
+        if "*" in allow_origins and settings.cors_allow_credentials:
+            logger.warning(
+                "CORS allow origins contains '*', disabling credentials to satisfy browser requirements."
+            )
+            allow_credentials = False
+        else:
+            allow_credentials = settings.cors_allow_credentials
 
-    if settings.cors_allow_credentials and "*" in allow_origins:
-        logger.warning(
-            "CORS allow origins contains '*', disabling credentials to satisfy browser requirements."
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=allow_origins,
+            allow_credentials=allow_credentials,
+            allow_methods=["*"],
+            allow_headers=["*"],
         )
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins = [
-    "http://localhost:3000",
-    "https://dev-next-docs.wavemaker.com",
-    "https://next-docs.wavemaker.com",
-],
-allow_credentials = allow_credentials,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    else:
+        logger.info("CORS middleware disabled (no origins configured in settings)")
 
     # Include API routes
     app.include_router(router, prefix="/api")

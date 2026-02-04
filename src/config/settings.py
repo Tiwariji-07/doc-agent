@@ -158,7 +158,7 @@ class Settings(BaseSettings):
     port: int = Field(default=8000, description="Server port")
     debug: bool = Field(default=False, description="Debug mode")
     cors_allow_origins: list[str] = Field(
-        default_factory=lambda: ["*"],
+        default_factory=lambda: [],
         description="Allowed CORS origins. Use JSON array e.g. ['https://app.example.com']",
     )
     cors_allow_credentials: bool = Field(
