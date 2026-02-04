@@ -1,0 +1,45 @@
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Git metadata
+.git/
+.gitignore
+
+# Python packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# Local environment files
+.env
+.env.*
+
+# Docs and notebooks
+docs/
+*.ipynb
+
+# IDE/editor configs
+.vscode/
+.idea/
+
+# Node/Frontend artifacts
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Tests & coverage outputs
+.coverage
+htmlcov/
+pytest.xml
+
+# Misc
+Dockerfile.dev
+docker-compose*.yml

@@ -1,0 +1,155 @@
+pipeline {
+  agent any
+  environment {
+    REMOTE_SERVER = "172.31.22.35"
+    CONTAINER_NAME = 'wm-docs-agent'
+    AWS_REGION = 'us-east-1'
+    ECR_REPO = 'poc-misc'
+    IMAGE_TAG = "dev.wm-docs-agent.${env.BUILD_NUMBER}"
+    HTTP_PORT = '8035'
+    DEPLOYMENT_KEY = 'wm-docs-agent-ssh-key'
+    AI_PROVIDER = "anthropic"
+    ANTHROPIC_API_KEY = credentials('DOC_AGENT_ANTHROPIC_API_KEY')
+    ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929"
+    OPENAI_API_KEY = credentials('DOC_AGENT_OPENAI_API_KEY')
+    OPENAI_MODEL = "gpt-4o"
+    OLLAMA_BASE_URL = "http://localhost:11434"
+    OLLAMA_MODEL = "llama3.2"
+    LLM_TEMPERATURE = "0.2"
+    LLM_MAX_TOKENS = "2048"
+    REDIS_URL = "redis://3.80.161.68:8022/1"
+    QDRANT_URL = "https://15b5cf84-0e11-4aea-9dd6-f3b8a7bf8c54.us-west-2-0.aws.cloud.qdrant.io"
+    QDRANT_API_KEY = credentials('DOCS_AGENT_QDRANT_API_KEY')
+    QDRANT_COLLECTION_NAME = "wavemaker_docs"
+    DOCS_REPO_URL = "https://github.com/wavemaker/docs.git"
+    DOCS_BRANCH = "release-12"
+    DOCS_BASE_URL = "https://next-docs.wavemaker.com/docs"
+    ACADEMY_MCP_URL = "https://dev-academyservices.wavemaker.com/mcp"
+    EMBEDDING_MODEL = "BAAI/bge-base-en-v1.5"
+    RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    RERANKER_PROVIDER = "jina"
+    JINA_API_KEY = credentials('DOCS_AGENT_JINA_API_KEY')
+    LLM_MODEL = "claude-sonnet-4-5-20250929"
+    CACHE_TTL_HOURS = "1"
+    SEMANTIC_CACHE_THRESHOLD = "0.95"
+    HOST = "0.0.0.0"
+    PORT = "8000"
+    DEBUG = "true"
+    ANALYTICS_ENABLED = "true"
+    ANALYTICS_DB_URL = credentials('ANALYTICS_DB_URL')
+    ANALYTICS_BATCH_SIZE = "100"
+    ANALYTICS_FLUSH_INTERVAL = "5"
+
+  }
+  stages {
+    
+
+    stage('Build Docker Image') {
+      steps {
+        script {
+          withAWS(region: AWS_REGION, credentials: 'wm-ps-user-ecr') {
+            def awsAccountID = sh(returnStdout: true, script: "aws sts get-caller-identity --query Account --output text").trim()
+
+            // Login to AWS ECR
+            sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${awsAccountID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+            // Build Docker image
+            sh "docker buildx build --tag=${ECR_REPO}:${IMAGE_TAG} ."
+          }
+        }
+      }
+    }
+
+    stage('Push to ECR') {
+      steps {
+        script {
+          withAWS(region: AWS_REGION, credentials: 'wm-ps-user-ecr') {
+            def awsAccountID = sh(returnStdout: true, script: "aws sts get-caller-identity --query Account --output text").trim()
+            //def ecrLogin = sh(returnStdout: true, script: "aws ecr get-login --no-include-email --region ${AWS_REGION}")
+            //sh "${ecrLogin}"
+            // Login to AWS ECR
+                sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${awsAccountID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+            
+            // Tag and push Docker image to ECR
+            sh "docker tag ${ECR_REPO}:${IMAGE_TAG} ${awsAccountID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
+            sh "docker push ${awsAccountID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
+          }
+        }
+      }
+    } 
+
+    stage('Deploy Docker Container') {
+      steps {
+        script {
+          sshagent([DEPLOYMENT_KEY]) {
+            withAWS(region: AWS_REGION, credentials: 'wm-ps-user-ecr') {
+              def awsAccountID = sh(returnStdout: true, script: "aws sts get-caller-identity --query Account --output text").trim()
+              def containerExists = sh(returnStdout: true, script: "ssh -o StrictHostKeyChecking=no ubuntu@${REMOTE_SERVER} 'docker ps -a --filter name=${CONTAINER_NAME} --format \"{{.Names}}\"'")
+              
+              // Stop and remove the existing container if it exists
+              if (containerExists.trim() != '') {
+                sh "ssh -o StrictHostKeyChecking=no ubuntu@${REMOTE_SERVER} 'docker rm -f ${CONTAINER_NAME}'"
+                echo "Container deleted: ${CONTAINER_NAME}"
+              }
+              // comment old code
+              // def ecrLogin = sh(returnStdout: true, script: "aws ecr get-login --no-include-email --region ${AWS_REGION}")
+             // sh "ssh -o StrictHostKeyChecking=no ubuntu@${REMOTE_SERVER} '${ecrLogin}'"
+
+              // Get ECR login command
+                    def ecrLogin = sh(returnStdout: true, script: "aws ecr get-login-password --region ${AWS_REGION}")
+                    // Print the ECR login command value
+                     echo "ECR Login Command: ${ecrLogin}"
+                    // Run SSH command to authenticate Docker on remote server
+                    sh """
+                        ssh -o StrictHostKeyChecking=no ubuntu@${REMOTE_SERVER} '
+                            echo "${ecrLogin}" | docker login --username AWS --password-stdin ${awsAccountID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                        '
+                    """
+
+              // Pull and run the new Docker image on the remote server
+              sh "ssh -o StrictHostKeyChecking=no ubuntu@${REMOTE_SERVER} 'docker pull ${awsAccountID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}'"
+              def dockerEnvArgs = [
+                'SPRING_PROFILES_ACTIVE=prod',
+                "AI_PROVIDER=${env.AI_PROVIDER}",
+                "ANTHROPIC_API_KEY=${env.ANTHROPIC_API_KEY}",
+                "ANTHROPIC_MODEL=${env.ANTHROPIC_MODEL}",
+                "OPENAI_API_KEY=${env.OPENAI_API_KEY}",
+                "OPENAI_MODEL=${env.OPENAI_MODEL}",
+                "OLLAMA_BASE_URL=${env.OLLAMA_BASE_URL}",
+                "OLLAMA_MODEL=${env.OLLAMA_MODEL}",
+                "LLM_TEMPERATURE=${env.LLM_TEMPERATURE}",
+                "LLM_MAX_TOKENS=${env.LLM_MAX_TOKENS}",
+                "REDIS_URL=${env.REDIS_URL}",
+                "QDRANT_URL=${env.QDRANT_URL}",
+                "QDRANT_API_KEY=${env.QDRANT_API_KEY}",
+                "QDRANT_COLLECTION_NAME=${env.QDRANT_COLLECTION_NAME}",
+                "DOCS_REPO_URL=${env.DOCS_REPO_URL}",
+                "DOCS_BRANCH=${env.DOCS_BRANCH}",
+                "DOCS_BASE_URL=${env.DOCS_BASE_URL}",
+                "ACADEMY_MCP_URL=${env.ACADEMY_MCP_URL}",
+                "EMBEDDING_MODEL=${env.EMBEDDING_MODEL}",
+                "RERANKER_MODEL=${env.RERANKER_MODEL}",
+                "RERANKER_PROVIDER=${env.RERANKER_PROVIDER}",
+                "JINA_API_KEY=${env.JINA_API_KEY}",
+                "LLM_MODEL=${env.LLM_MODEL}",
+                "CACHE_TTL_HOURS=${env.CACHE_TTL_HOURS}",
+                "SEMANTIC_CACHE_THRESHOLD=${env.SEMANTIC_CACHE_THRESHOLD}",
+                "HOST=${env.HOST}",
+                "PORT=${env.PORT}",
+                "DEBUG=${env.DEBUG}",
+                "ANALYTICS_ENABLED=${env.ANALYTICS_ENABLED}",
+                "ANALYTICS_DB_URL=${env.ANALYTICS_DB_URL}",
+                "ANALYTICS_BATCH_SIZE=${env.ANALYTICS_BATCH_SIZE}",
+                "ANALYTICS_FLUSH_INTERVAL=${env.ANALYTICS_FLUSH_INTERVAL}"
+              ].collect { "-e \"${it}\"" }.join(' ')
+
+              sh """
+                ssh -o StrictHostKeyChecking=no ubuntu@${REMOTE_SERVER} 'docker run -d --name ${CONTAINER_NAME} -p ${HTTP_PORT}:8000 ${dockerEnvArgs} ${awsAccountID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}'
+              """
+            }
+          }
+        }
+      } 
+    } 
+  }
+}
