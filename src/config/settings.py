@@ -157,6 +157,14 @@ class Settings(BaseSettings):
     host: str = Field(default="0.0.0.0", description="Server host")
     port: int = Field(default=8000, description="Server port")
     debug: bool = Field(default=False, description="Debug mode")
+    cors_allow_origins: list[str] = Field(
+        default_factory=lambda: ["*"],
+        description="Allowed CORS origins. Use JSON array e.g. ['https://app.example.com']",
+    )
+    cors_allow_credentials: bool = Field(
+        default=True,
+        description="Allow cookies/credentials in CORS responses (requires explicit origins)",
+    )
 
     # === Chunking Configuration ===
     chunk_min_tokens: int = Field(default=100, description="Minimum chunk size")

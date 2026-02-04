@@ -89,10 +89,22 @@ def create_app() -> FastAPI:
     )
 
     # Configure CORS
+    allow_origins = settings.cors_allow_origins or ["*"]
+    allow_credentials = settings.cors_allow_credentials and "*" not in allow_origins
+
+    if settings.cors_allow_credentials and "*" in allow_origins:
+        logger.warning(
+            "CORS allow origins contains '*', disabling credentials to satisfy browser requirements."
+        )
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Configure appropriately for production
-        allow_credentials=True,
+        allow_origins = [
+    "http://localhost:3000",
+    "https://dev-next-docs.wavemaker.com",
+    "https://next-docs.wavemaker.com",
+],
+allow_credentials = allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )
